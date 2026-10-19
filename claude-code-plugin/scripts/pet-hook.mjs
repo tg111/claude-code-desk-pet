@@ -4,7 +4,7 @@
  *
  * Claude Code 每触发一次 hook，就把事件 JSON 写进本脚本的 stdin。本脚本只做两件事：
  *   1. 转发：读 `~/.desk-pet/server.json` 找到桌宠服务的端口，把原始载荷 POST 到
- *      `/claude-code/hook`（翻译成动画档位在桌宠那边做，见 dsh-pet/src/standalone/claude-code.ts）；
+ *      `/claude-code/hook`（翻译成动画档位在桌宠那边做，见 desk-pet/src/standalone/claude-code.ts）；
  *   2. 自动拉起：桌宠没在跑时，SessionStart / UserPromptSubmit 会在后台把它启动起来。
  *
  * 铁律：**绝不拖慢、绝不打断 Claude Code**。任何失败都静默退出 0，不往 stdout 写任何东西
@@ -14,7 +14,7 @@
  *   DESK_PET_DISABLE=1     完全停用（不转发、不拉起）
  *   DESK_PET_AUTOSTART=0   只转发，不自动拉起
  *   DESK_PET_CMD           自定义启动命令（整条命令行，经 shell 执行），例如 "node /path/to/lib/standalone.js"
- *   DESK_PET_HOME          数据目录（默认 ~/.desk-pet；也认 DSH_HOME），与桌宠进程保持一致
+ *   DESK_PET_HOME          数据目录（默认 ~/.desk-pet），与桌宠进程保持一致
  *   DESK_PET_PORT          直接指定端口（不读 server.json）
  */
 import { spawn } from 'node:child_process';
@@ -33,7 +33,7 @@ const AUTOSTART_EVENTS = new Set(['SessionStart', 'UserPromptSubmit']);
 
 const env = process.env;
 const here = dirname(fileURLToPath(import.meta.url));
-const home = env.DSH_HOME || env.DESK_PET_HOME || join(homedir(), '.desk-pet');
+const home = env.DESK_PET_HOME || join(homedir(), '.desk-pet');
 
 /** 读完 stdin（Claude Code 写完即关闭；兜底超时，防止被手动运行时挂住） */
 function readStdin() {
@@ -100,7 +100,7 @@ function post(port, body) {
 /** 启动命令：DESK_PET_CMD > 同仓库里构建好的 lib/standalone.js > PATH 上的 desk-pet */
 function launchCommand() {
   if (env.DESK_PET_CMD) return { command: env.DESK_PET_CMD, args: [], shell: true };
-  const sibling = resolve(here, '..', '..', 'dsh-pet', 'lib', 'standalone.js');
+  const sibling = resolve(here, '..', '..', 'desk-pet', 'lib', 'standalone.js');
   if (existsSync(sibling)) return { command: process.execPath, args: [sibling], shell: false };
   return { command: 'desk-pet', args: [], shell: process.platform === 'win32' };
 }

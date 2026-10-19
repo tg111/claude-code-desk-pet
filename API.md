@@ -1,10 +1,10 @@
 # desk-pet 对外 HTTP 接口一览
 
-`desk-pet` 进程在本机起一个 HTTP 服务，宿主半边在上面注册**一条前缀路由** `/dsh-pet-7340`，
+`desk-pet` 进程在本机起一个 HTTP 服务，宿主半边在上面注册**一条前缀路由** `/desk-pet`，
 桌面渲染端与第三方脚本访问的是同一份实现。本文只做**功能预览**（接口名 + 一句话），
 完整契约——参数、响应体、字段含义、错误码与示例——见根目录的 [`openapi.yaml`](openapi.yaml)。
 
-- **基址**：`http://127.0.0.1:<port>/dsh-pet-7340`，`<port>` 见 `~/.desk-pet/server.json`（默认 3080，被占用则顺延）
+- **基址**：`http://127.0.0.1:<port>/desk-pet`，`<port>` 见 `~/.desk-pet/server.json`（默认 3080，被占用则顺延）
 - 另有一个 `POST /claude-code/hook`（不在前缀下）：接收 Claude Code 的 hook 载荷，由插件的转发脚本调用
 - **只监听 127.0.0.1，且没有鉴权**：任何能访问本机该端口的进程都能调用，请勿转发到公网
 
@@ -14,41 +14,41 @@
 
 | 接口 | 功能 |
 | --- | --- |
-| `GET /dsh-pet-7340/state` | **轮询唯一数据源**：所有状态位都在这里；带 `?since=&timeout=` 可长轮询 |
-| `GET /dsh-pet-7340/config` | 读合并后的成品配置（内置默认 + 用户层，字段已填满） |
-| `GET /dsh-pet-7340/models` | 可选模型清单（`claude-code` 服务商 + `haiku` / `sonnet` / `opus` 别名） |
-| `GET /dsh-pet-7340/chat?pet=` | 读某只桌宠最近的对话记忆窗口 |
+| `GET /desk-pet/state` | **轮询唯一数据源**：所有状态位都在这里；带 `?since=&timeout=` 可长轮询 |
+| `GET /desk-pet/config` | 读合并后的成品配置（内置默认 + 用户层，字段已填满） |
+| `GET /desk-pet/models` | 可选模型清单（`claude-code` 服务商 + `haiku` / `sonnet` / `opus` 别名） |
+| `GET /desk-pet/chat?pet=` | 读某只桌宠最近的对话记忆窗口 |
 
 ## 二、让桌宠做事
 
 | 接口 | 功能 |
 | --- | --- |
-| `POST /dsh-pet-7340/whisper?pet=` | 让桌宠**生成**一句碎碎念（走 `claude -p`） |
-| `POST /dsh-pet-7340/broadcast?pet=` | **第三方投喂**：把外部给定的文本写进气泡（不生成，只搬运）；配图（`image` 池内名 / `url` 自带地址）、时长、动画联动可选 |
-| `POST /dsh-pet-7340/bubble/clear?pet=` | **清空气泡**：提前收起说话气泡（只动气泡，不动动画） |
-| `POST /dsh-pet-7340/anim?pet=` | **点播动画**：播池内名字（同右键「动作」菜单）或第三方自带的 `url`；回 `playbackId` |
-| `GET /dsh-pet-7340/playback/{id}` | **播放回执**：查那次点播的真实状态；带 `?wait=&timeout=` 可挂起等待 |
-| `POST /dsh-pet-7340/playback/{id}/report` | 渲染端上报播放状态（**内部通道**，第三方不用调） |
-| `POST /dsh-pet-7340/chat?pet=` | 对桌宠说一句话并生成回复，同时写入对话记忆 |
-| `POST /dsh-pet-7340/position?pet=` | **位置控制**：挪到归一化坐标，`mode` = 直接/弹簧/直线；不碰动画 |
-| `POST /dsh-pet-7340/throw?pet=` | **原生抛掷**：给桌宠一个初速度让它飞出去（`angle` 度、`power` 倍率） |
-| `POST /dsh-pet-7340/reload` | 重载桌面端（重启桌面宠物进程，按最新配置重建窗口） |
+| `POST /desk-pet/whisper?pet=` | 让桌宠**生成**一句碎碎念（走 `claude -p`） |
+| `POST /desk-pet/broadcast?pet=` | **第三方投喂**：把外部给定的文本写进气泡（不生成，只搬运）；配图（`image` 池内名 / `url` 自带地址）、时长、动画联动可选 |
+| `POST /desk-pet/bubble/clear?pet=` | **清空气泡**：提前收起说话气泡（只动气泡，不动动画） |
+| `POST /desk-pet/anim?pet=` | **点播动画**：播池内名字（同右键「动作」菜单）或第三方自带的 `url`；回 `playbackId` |
+| `GET /desk-pet/playback/{id}` | **播放回执**：查那次点播的真实状态；带 `?wait=&timeout=` 可挂起等待 |
+| `POST /desk-pet/playback/{id}/report` | 渲染端上报播放状态（**内部通道**，第三方不用调） |
+| `POST /desk-pet/chat?pet=` | 对桌宠说一句话并生成回复，同时写入对话记忆 |
+| `POST /desk-pet/position?pet=` | **位置控制**：挪到归一化坐标，`mode` = 直接/弹簧/直线；不碰动画 |
+| `POST /desk-pet/throw?pet=` | **原生抛掷**：给桌宠一个初速度让它飞出去（`angle` 度、`power` 倍率） |
+| `POST /desk-pet/reload` | 重载桌面端（重启桌面宠物进程，按最新配置重建窗口） |
 
 ## 三、改配置
 
 | 接口 | 功能 |
 | --- | --- |
-| `PUT /dsh-pet-7340/config` | 保存用户层配置（白名单重建，用户手写的精调字段会保留） |
-| `POST /dsh-pet-7340/pet-display` | **显示 / 隐藏单只宠物**（`desktop` / `none`），只传 `{ id, display }` |
-| `POST /dsh-pet-7340/config` | 用内置默认整份覆盖用户配置，即「恢复默认」 |
+| `PUT /desk-pet/config` | 保存用户层配置（白名单重建，用户手写的精调字段会保留） |
+| `POST /desk-pet/pet-display` | **显示 / 隐藏单只宠物**（`desktop` / `none`），只传 `{ id, display }` |
+| `POST /desk-pet/config` | 用内置默认整份覆盖用户配置，即「恢复默认」 |
 
 ## 四、素材
 
 | 接口 | 功能 |
 | --- | --- |
-| `GET /dsh-pet-7340/thumb/{petId}/{file}` | 动画素材（`.webm` / `.mov`，按宠物归属） |
-| `GET /dsh-pet-7340/font/{file}` | 字体文件 |
-| `GET /dsh-pet-7340/pic/{file}` | 光标等小图（`pic/`）与表情包（`pic/memes/{素材根}/`，按宠物归属） |
+| `GET /desk-pet/thumb/{petId}/{file}` | 动画素材（`.webm` / `.mov`，按宠物归属） |
+| `GET /desk-pet/font/{file}` | 字体文件 |
+| `GET /desk-pet/pic/{file}` | 光标等小图（`pic/`）与表情包（`pic/memes/{素材根}/`，按宠物归属） |
 
 ---
 
@@ -69,7 +69,7 @@
 ## 快速试一下
 
 ```bash
-BASE=http://127.0.0.1:<port>/dsh-pet-7340
+BASE=http://127.0.0.1:<port>/desk-pet
 
 # 拉一次状态（只读、零副作用，可以随便轮询）
 curl -s $BASE/state
@@ -110,7 +110,7 @@ curl -s -X POST "$BASE/anim?pet=main" \
 
 ## 运维端点
 
-不在 `/dsh-pet-7340` 前缀下，故不在 OpenAPI 契约里：
+不在 `/desk-pet` 前缀下，故不在 OpenAPI 契约里：
 
 | 端点 | 说明 |
 | --- | --- |

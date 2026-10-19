@@ -1,7 +1,7 @@
-"""Generate animated GIF previews from the playing assets (dsh-pet/assets/webm -> dsh-pet/assets/preview).
+"""Generate animated GIF previews from the playing assets (desk-pet/assets/webm -> desk-pet/assets/preview).
 
-素材处理链的附属步骤：把插件实际播放的透明 WebM（dsh-pet/assets/webm/）转成 GIF 预览
-（dsh-pet/assets/preview/），供 GitHub README 等 Markdown 页面展示。
+素材处理链的附属步骤：把插件实际播放的透明 WebM（desk-pet/assets/webm/）转成 GIF 预览
+（desk-pet/assets/preview/），供 GitHub README 等 Markdown 页面展示。
 
 为什么需要这一步：
 - GitHub 的 Markdown 渲染器只为「网页端上传的附件」生成内联视频播放器；
@@ -13,7 +13,7 @@
 转成黑色；本脚本用 palettegen/paletteuse 保留 alpha，透明部分在页面上显示为底色。
 
 输出命名：按仓库约定输出拼音文件名（README 效果预览的
-<img src="dsh-pet/assets/preview/<拼音>.gif"> 与 PINYIN 表一一对应）；
+<img src="desk-pet/assets/preview/<拼音>.gif"> 与 PINYIN 表一一对应）；
 表中没有的动画名回退用中文名。
 
 用法：
@@ -28,8 +28,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "dsh-pet" / "assets" / "webm"
-OUT = ROOT / "dsh-pet" / "assets" / "preview"
+SRC = ROOT / "desk-pet" / "assets" / "webm"
+OUT = ROOT / "desk-pet" / "assets" / "preview"
 # 统一使用工作区自带的 ffmpeg（素材处理链零第三方依赖）
 FFMPEG = str(ROOT / ".tools" / "ffmpeg-9.0.1-essentials_build" / "bin" / "ffmpeg.exe")
 

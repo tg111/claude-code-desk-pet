@@ -1,0 +1,1509 @@
+/**
+ * 宿主半边（host half）—— 桌宠的"后端"：配置、素材、状态仓、工作状态与桌面 Helper。
+ *
+ * 由 desk-pet 进程（src/standalone/cli.ts）以 `apply(ctx)` 启动：ctx 是 src/standalone/context.ts
+ * 的伪上下文。业务能力集中在 handlePetRoute（纯函数），两个入口共用它：
+ *   - HTTP 路由：`/desk-pet/` 前缀（对外接口，见 API.md / openapi.yaml）
+ *   - 桌面 Helper 管道：helper-process.ts 的 bridgeHandler（经 desk-pet-bridge:// scheme +
+ *     stdout JSON 行 + 本地回调，**不走 HTTP**）
+ *
+ * 路由：
+ *   /desk-pet/config             → 合并后的**成品配置**（{ main:{...}, test1:{...}, ... }，每条目字段已填满）
+ *                                GET 读取成品；PUT 保存用户层（白名单重建 main-config.jsonc）、
+ *                                POST 同步用户层（把内置默认 config.jsonc **原文**整份写入）——
+ *                                两个写接口的响应体都是保存后的成品聚合
+ *   /desk-pet/pet-display         → 改单只宠物的 display（托盘 / 右键「隐藏」用）
+ *   /desk-pet/reload              → 「重载配置」（右键菜单，POST）：重启桌面 Helper，全部桌面
+ *                                宠物窗口按最新配置重建
+ *   /desk-pet/thumb/<素材根>/<动画名>.webm|.mov  → 素材按宠物归属：
+ *       文件宠物 = <数据目录>/pet/<素材根>-animation/（只查自己的，绝不回落）；
+ *       主宠物   = <数据目录>/main-animation/<webm|mov>（用户目录，优先）→ 包内 assets/<webm|mov>
+ *       <素材根> 是**标识符**（pet/ 下文件名前缀），含分隔符/保留字符即 400（见 ID_FORBIDDEN）
+ *   /desk-pet/models              → 可选「服务商 + 模型」清单（来自 ctx.llm，配置界面的下拉框数据源）
+ *   /desk-pet/state               → **轮询统一状态 S**（GET，渲染端的唯一数据源）：
+ *                                       { sections: { workStatus, config }, pets: { <id>: { say, anim, … } } }，
+ *                                       每个叶子 = { counter, data }；counter 变了才渲染。
+ *                                       只读、纯内存、零副作用（绝不在这里触发外部调用/模型生成）。
+ *   /desk-pet/whisper              → 让某只宠物立即说一句（POST 动作端点，写 S 的 pets.<id>.say）
+ *   /desk-pet/broadcast            → 第三方投喂：把外部给定的文本写进气泡（不生成、只搬运）。
+ *                                       配图给 `image`（池内名）或 `url`（第三方自带的完整地址）二选一
+ *   /desk-pet/bubble/clear         → 提前收起说话气泡
+ *   /desk-pet/anim                 → 点播动画（`name` 池内名 或 `url` 第三方地址），响应带 playbackId
+ *   /desk-pet/playback/<id>        → **播放回执**（GET，可带 `?wait=&timeout=` 挂起等待）
+ *   /desk-pet/playback/<id>/report → 渲染端上报播放状态（POST，**内部通道**）
+ *   /desk-pet/position | throw     → 位置控制 / 原生抛掷
+ *   /desk-pet/chat                 → 对话与记忆（GET 最近窗口 / POST 对话并写 memory.json；
+ *                                       POST 只回 {ok}，回复同样写 S 的 pets.<id>.say）
+ *   /desk-pet/font|pic             → 字体 / 光标与表情包素材
+ *
+ * 工作状态：订阅 ctx 的 `session/event`（Claude Code hook 经 src/standalone/claude-code.ts 翻译而来），
+ * 由 WorkStatusStore 聚合后写进 S 的 sections.workStatus。
+ *
+ * 安全性：resolveAsset 做"防穿越"校验，保证路径仍在对应根目录内；
+ *         PUT 保存经 saveUserConfig 白名单重建，id 过滤文件名非法字符。
+ */
+import { createReadStream, existsSync, fstatSync } from 'node:fs';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { join, normalize, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { generateWhisper } from './whisper';
+import { generateChat, type ChatMemoryMessage } from './chat';
+import { configuredModel } from './model-selection';
+import { limitPool, pickMeme, readMemePool } from './memes';
+import {
+  decideBroadcast,
+  decideBubbleClear,
+  normalizeBroadcastAnim,
+  normalizeBroadcastDuration,
+  normalizeBroadcastText,
+} from './broadcast';
+import { decideAnim } from './anim';
+import { decidePosition, decideThrow, positionLeafData } from './motion-cue';
+import { parsePlaybackPath, parseWaitQuery, PlaybackStore } from './playback';
+import {
+  findPetInstance,
+  flattenPetList,
+  ID_FORBIDDEN,
+  migrateUserConfig,
+  PET_DISPLAY_SET,
+  readAllConfig,
+  readPetConfigEntry,
+  readUserConfig,
+  saveUserConfig,
+  sliceMemoryRounds,
+  syncUserConfigFromDefault,
+  userConfigUnparsable,
+  configPathsFor,
+} from './config';
+import { reduceWorkStatus, currentTaskFromTodo, WorkStatusStore } from './work-status';
+import { parseStateWaitQuery, PollStateStore } from './state';
+import { timeContextOf } from './time-context';
+import {
+  HelperProcess,
+  deskPetHomeDir,
+  defaultElectronExe,
+  ensureElectronDownload,
+  hasGraphicalDisplay,
+  resolveElectronPath,
+} from './helper-process';
+
+/** 本包目录：宿主构建产物位于 lib/，其上一级即包根。 */
+const PACKAGE_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+/** 包内 assets 根 */
+const PACKAGE_ROOT_ASSETS = join(PACKAGE_ROOT, 'assets');
+
+/** 包内表情包目录（表情包池的最后一环：assets/memes/<名称>.png） */
+const PACKAGE_MEMES_DIR = join(PACKAGE_ROOT_ASSETS, 'memes');
+
+/** 路由前缀 */
+const ROUTE_PREFIX = '/desk-pet';
+
+const MIME: Record<string, string> = {
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.mp4': 'video/mp4',
+  '.png': 'image/png',
+  '.json': 'application/json; charset=utf-8',
+  '.jsonc': 'application/json; charset=utf-8',
+  '.ttf': 'font/ttf',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+};
+
+/**
+ * 规范化并校验请求路径，确保它在 assets 根目录内（防路径穿越）。
+ * @returns 规范化后的绝对文件路径；非法（穿越）时返回 undefined
+ */
+function resolveAsset(root: string, rel: string): string | undefined {
+  if (rel.length === 0) return undefined;
+  const candidate = normalize(join(root, rel));
+  const rootWithSep = root.endsWith(sep) ? root : root + sep;
+  if (candidate !== root && !candidate.startsWith(rootWithSep)) return undefined;
+  return candidate;
+}
+
+/** 在 root 下解析并确认实体存在；非法（穿越）或不存在时返回 undefined */
+function resolveExisting(root: string, rel: string): string | undefined {
+  const candidate = resolveAsset(root, rel);
+  return candidate && existsSync(candidate) ? candidate : undefined;
+}
+
+/**
+ * 流式返回一个文件（带 Content-Type / 长度 / 缓存头）。
+ *
+ * Content-Length 必须取自**正在读的那个 fd**（open 事件里 fstat），不能先 stat 再另开流：用户往
+ * <数据目录>/main-animation/webm/ 复制或同名覆盖素材时，stat 与真正开始读之间文件会被截断/
+ * 改写，一旦实际字节数少于声明的长度，这个响应就**永远不结束、也不报错**（浏览器表现为 stalled、
+ * 视频 loadeddata 永不触发且无 error）——正是 issue #62 现场"数据断供"的一种成因。同一个 fd 的
+ * fstat 拿到的大小与随后读出的字节天然一致。
+ */
+function sendFile(res: ServerResponse, file: string, contentType: string): void {
+  const stream = createReadStream(file);
+  stream.once('open', (fd) => {
+    if (res.destroyed || res.writableEnded) {
+      stream.destroy(); // 客户端在开流前就放弃了
+      return;
+    }
+    try {
+      res.writeHead(200, {
+        'content-type': contentType,
+        'content-length': fstatSync(fd).size,
+        'cache-control': 'public, max-age=3600',
+      });
+    } catch {
+      // 极端情况下 fstat 拿不到：不发长度头，交给 Node 用 chunked 收尾（长度天然一致，只是没声明）
+      res.writeHead(200, { 'content-type': contentType, 'cache-control': 'public, max-age=3600' });
+    }
+    stream.pipe(res);
+  });
+  // 读失败（文件被删/权限/被占用）：直接断连，让客户端立刻看到失败，而不是无限等待
+  stream.on('error', () => res.destroy());
+  // 客户端提前断开（快速切动画时高频发生）→ 停读，别把整个文件读完
+  res.on('close', () => stream.destroy());
+}
+
+// 配置的读取/校验/合并/保存全部收敛在 ./config（readAllConfig / saveUserConfig，host 自包含实现，
+// 不 import src/shared）。本文件不再保留任何配置逻辑，只消费成品返回值。
+
+/** 该宠物是否参与桌面模式（Electron 透明窗） */
+const isDesktopVisible = (display: unknown): boolean => display === 'desktop' || display === 'both';
+
+/** 发送 JSON 响应（headers 可选：如 no-cache 触发计数） */
+function sendJson(res: ServerResponse, status: number, obj: unknown, headers: Record<string, string> = {}): void {
+  const body = JSON.stringify(obj);
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': Buffer.byteLength(body),
+    ...headers,
+  });
+  res.end(body);
+}
+
+/** 发送纯文本响应（素材 404/400 等显式错误文案） */
+function sendText(res: ServerResponse, status: number, body: string): void {
+  res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8' });
+  res.end(body);
+}
+
+/** 单次业务路由的应答（WebServer 注册与桌面 Helper 管道共用的同一契约；消费方各自落盘） */
+type RouteResult =
+  | { kind: 'json'; status: number; obj: unknown; headers?: Record<string, string> }
+  | { kind: 'text'; status: number; body: string }
+  | { kind: 'file'; file: string; contentType: string }
+  /** 无需应答：调用方在挂起等待期间已断开（见 /playback 的等待分支）——消费方直接收尾，不写 */
+  | { kind: 'none' };
+
+/** 收集请求体（文本） */
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve2, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', () => resolve2(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 额外宠物（pet pack）说明：校验/扫描已收敛到 ./config（readAllConfig 内部逐字段合并），
+// 这里不再有 host 侧拷贝——文件宠物与主宠物一样，统一从 readAllConfig 的成品读取。
+// ---------------------------------------------------------------------------
+
+/** 宿主半边主体：注册 `/desk-pet` 前缀路由、订阅工作状态事件、拉起桌面 Helper。 */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- 伪 ctx（src/standalone/context.ts）没有静态类型
+export function apply(ctx: any): void {
+  // 用户数据根：配置与用户素材统一收敛于此（扩展包按 <插件id> 各自建目录）
+  const dataHome = deskPetHomeDir();
+  const userRoot = dataHome;
+  // 配置路径集（readAllConfig 的唯一输入：内置默认 + 用户主配置 + 文件宠物目录；推导见 ./config）
+  const configPaths = configPathsFor(PACKAGE_ROOT, dataHome);
+  const userConfigPath = configPaths.userFile;
+  const petConfigDir = configPaths.petDir;
+  // 老用户一次性迁移：main-config.json → main-config.jsonc（重命名，内容一字不动；
+  // 新文件已存在则不动旧文件）。失败不影响运行——读取侧对旧路径有回落。
+  migrateUserConfig(configPaths, (msg) => console.log('[desk-pet] ' + msg));
+  // 用户动画目录（thumb 播放时优先于包内素材；webm 放 main-animation/webm/，mov（macOS 定制）放 main-animation/mov/）
+  const thumbUserRoot = join(userRoot, 'main-animation');
+  // 用户表情包目录（碎碎念/对话配图的图片：优先于包内 assets/memes，加图不必改包）
+  const memesUserRoot = join(userRoot, 'memes');
+  /**
+   * 表情包目录链 —— 与动画素材（/thumb）**同一套素材归属语义**：
+   *   - `pet/<素材根>-memes/` 存在（种类自带表情包）：**只查它**，池与路由都不回落——
+   *     查不到即 404 / 该条目剔除（与 `pet/<素材根>-animation/` 的独占规则逐字一致）；
+   *   - 否则：用户目录 `<数据目录>/memes/` 优先，其次包内 `assets/memes/`（逐文件合并，
+   *     与「main-animation/<ext> → 包内 assets/<ext>」的主素材链同构）。
+   * 池（readMemePool）与路由（/pic/memes）必须走**同一个函数**：池里能选的名字，
+   * 路由必须取得到，否则气泡配图会图裂。
+   * 素材根一律先过 resolveAsset：它来自 URL 段，Windows 上 %5C 解出的反斜杠不会被
+   * rest.split('/') 切开，直接 join 会让 `..\..\x` 逃出用户根读盘（与 /thumb 同一道防线）。
+   */
+  const memeDirsFor = (assetRoot: string): string[] => {
+    const own = resolveAsset(petConfigDir, assetRoot + '-memes');
+    if (own !== undefined && existsSync(own)) return [own];
+    return [memesUserRoot, PACKAGE_MEMES_DIR];
+  };
+  // 轮询统一状态（S）：渲染端轮询的**唯一**数据源（工作状态 / 宠物说话 / 动作指令）。
+  // 所有写入走 state.writeSection / writePet（由它统一更新 counter），见 ./state 的说明。
+  const state = new PollStateStore();
+  // 播放记录表（issue #122 第 3 项「播放与完成回执」）：**由渲染端上报驱动**的状态机 + 等待者。
+  // 与 S 无关：播放记录是 per-caller 资源（只有发起那次点播的调用方关心、有生命周期、数量随
+  // 第三方调用方增长），塞进 1s 全局广播会让每个窗口为每个功能付流量。见 ./playback 的说明。
+  const playback = new PlaybackStore();
+  // 工作状态联动快照（写进 S 的 sections.workStatus）：state=当前活动状态（null=空闲）、
+  // task=当前任务详情。气泡文案不在此：渲染端读配置 workStatusTexts（host 不内置文案）。
+  // 聚合与展示选择都在 WorkStatusStore（host/work-status.ts，纯逻辑可单测）：**state 与 task 都按
+  // 会话存**——task 曾是全局单值，写过一次就跟着此后所有会话活动一直显示（issue #59）。
+  // 进程内内存态：重启回空闲；每次会话事件有实际状态变化才更新（签名比对防刷屏）。
+  const workStatus = new WorkStatusStore();
+  // 工作状态快照 → 写进 S（前端 1s 轮询 /state 后按 counter 变化渲染）。
+  // **只在内容真的变了时才写**：每次写都会推进 counter，前端据此重播档位动画——
+  // 会话事件很密（每个 tool/call 都来），无条件写会把动画刷成幻灯片。
+  // 判据用**内容**（state + task）而不是 store 的 ts：ts 是 Date.now()（毫秒分辨率），
+  // 同一毫秒内连改两次会被误判成"没变化"而漏写（测试里连发事件就会踩到）。
+  // data 里不再带 ts：「变了没有」已由叶子 counter 承担，少一个会漂移的第二信号。
+  let publishedWork = '\u0000';
+  const publishWorkStatus = (): void => {
+    const snap = workStatus.snapshot();
+    const key = String(snap.state) + '\u0000' + String(snap.task);
+    if (key === publishedWork) return;
+    publishedWork = key;
+    state.writeSection('workStatus', { state: snap.state, task: snap.task });
+  };
+  /** 终态（success/error）展示窗口定时器：约 60s 后清掉该会话条目，陈旧完成态不再浮上来（Bug 2/3） */
+  const terminalTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const TERMINAL_KEEP_MS = 60 * 1000;
+  /** 取消某会话待执行的终态清理：会话已回到非终态，那次清理到点后既不清理也不重排，留着只会误导 */
+  const cancelTerminalCleanup = (sessionId: string): void => {
+    const t = terminalTimers.get(sessionId);
+    if (t === undefined) return;
+    clearTimeout(t);
+    terminalTimers.delete(sessionId);
+  };
+  /** 排一个终态清理定时器（每会话一个，已排则跳过） */
+  const scheduleTerminalCleanup = (sessionId: string): void => {
+    if (terminalTimers.has(sessionId)) return;
+    const t = setTimeout(() => {
+      terminalTimers.delete(sessionId);
+      const sessionState = workStatus.stateOf(sessionId);
+      if (sessionState === 'success' || sessionState === 'error') {
+        workStatus.clear(sessionId); // 条目连同它的任务详情文案一起消失，不残留到后续活动
+        publishWorkStatus(); // 清完要写 S：否则前端一直挂着那条陈旧完成态
+      }
+    }, TERMINAL_KEEP_MS);
+    terminalTimers.set(sessionId, t);
+  };
+  // 碎碎念周期调度的「上次生成时刻」（按宠物）：调度拍据此判断到没到点。
+  // 改造前这份节流靠 whisperCache（缓存 + ts 比较），现在"该不该生成"由调度侧决定、
+  // "生成结果"直接写 S——多端共享同一句由 S 天然保证，不再需要第二份缓存。
+  const lastWhisperAt = new Map<string, number>();
+
+  // 对话记忆文件（唯一读写方 = 本进程；浏览器/桌面两端都只是客户端 → 同一实例天然共享同一份记忆）。
+  // 结构双层：{ <种类桶 assetRoot ?? petId>: { <实例 id>: { messages: ChatMemoryMessage[] } } }
+  const memoryPath = join(userRoot, 'memory.json');
+  // 对话写操作串行队列：read-modify-write 排队执行，防两端同时对话时交错写盘
+  let chatQueue: Promise<void> = Promise.resolve();
+
+  /** 读记忆文件：不存在 → 空；损坏 → 显式报错 + 备份原始文件（绝不静默丢数据）+ 重建空记忆 */
+  const readMemory = async (): Promise<Record<string, Record<string, { messages: ChatMemoryMessage[] }>>> => {
+    let raw: string;
+    try {
+      raw = await readFile(memoryPath, 'utf8');
+    } catch {
+      return {}; // 文件不存在 = 尚无记忆
+    }
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== 'object') throw new Error('not an object');
+      return parsed as Record<string, Record<string, { messages: ChatMemoryMessage[] }>>;
+    } catch (e) {
+      console.error(
+        `desk-pet: 记忆文件损坏已备份（对话将从头开始）：${memoryPath}（${e instanceof Error ? e.message : String(e)}）`,
+      );
+      try {
+        await mkdir(userRoot, { recursive: true });
+        await writeFile(`${memoryPath}.bak-${Date.now()}`, raw, 'utf8');
+      } catch {
+        /* 备份失败仅告警，不阻断 */
+      }
+      return {};
+    }
+  };
+
+  const writeMemory = async (mem: Record<string, Record<string, { messages: ChatMemoryMessage[] }>>): Promise<void> => {
+    await mkdir(userRoot, { recursive: true });
+    await writeFile(memoryPath, JSON.stringify(mem, null, 2), 'utf8');
+  };
+
+  /** 把一次读写封进串行队列（同进程内防交错），返回 fn 的结果 */
+  const withMemoryLock = <T>(fn: () => Promise<T>): Promise<T> => {
+    const run = chatQueue.then(fn, fn);
+    chatQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  };
+
+  // ---- 配置消费：唯一入口 readAllConfig（./config）——返回值绝对正确，这里只读字段，零校验 ----
+
+  /** 某宠物的最终人设 system：所属条目（非文件宠物 → main 条目）的 whisperPrompt（合并器已填默认）
+   *  + 无条件追加一句名字声明（name，缺失已按 id）——碎碎念与对话共用同一拼装。
+   *  + 末尾追加一行**时间背景**（time-context.ts：日期/星期/时刻/时段/工作日或周末）：
+   *    碎碎念与对话各自每次生成都会重新走这里，所以拿到的永远是**当前**时刻，不需要额外的刷新机制；
+   *    非法 Date 时它为空串，此时整行不加（宁可没有时间信息，也不把 NaN 拼进提示词）。 */
+  const petSystemPrompt = (petId: string, cfg: Record<string, Record<string, unknown>>): string => {
+    const found = findPetInstance(cfg, petId);
+    const conf = found ? found.conf : (cfg.main ?? {});
+    const prompt = typeof conf.whisperPrompt === 'string' ? conf.whisperPrompt : '';
+    const name = found ? String(found.pet.name || found.pet.id || petId) : petId;
+    const nameLine = '你的名字是“' + name + '”。';
+    const base = prompt ? prompt + '\n' + nameLine : nameLine;
+    const time = timeContextOf(new Date());
+    return time ? base + '\n' + time : base;
+  };
+
+  /** 对话记忆轮数（1 轮 = 1 问 1 答）：所属条目/主条目的 chatMemoryRounds（合并器已填默认非负数字） */
+  const memoryRounds = (petId: string, cfg: Record<string, Record<string, unknown>>): number => {
+    const found = findPetInstance(cfg, petId);
+    const v = Number(found?.conf.chatMemoryRounds ?? cfg.main?.chatMemoryRounds);
+    return Number.isFinite(v) && v >= 0 ? Math.floor(v) : 5;
+  };
+
+  /** 生成/返回某宠物的一句碎碎念（周期 GET 与菜单手动触发共用的同一逻辑）：
+   *  每只宠物独立生成（所属条目的人设）。生成成功就写进 S 的 pets.<id>.say——
+   *  碎碎念 / 命令气泡 / 对话回复在前端本来就是**同一条展示链路**（同一个 triggerWhisper、
+   *  同一个气泡槽、同一批 events.whisper 动画），所以合并成同一个叶子；"周期内不重复"由
+   *  调度侧的 lastWhisperAt 保证，不再需要一份 whisperCache（多端共享也由 S 天然保证）。
+   *  配图（whisperImageEnabled 开启时）：从表情包池**随机抽 1 张**，把描述注入指令并随文本一起写。 */
+  const publishWhisper = async (petId: string): Promise<boolean> => {
+    const cfg = readAllConfig(configPaths);
+    const found = findPetInstance(cfg, petId);
+    const conf = found ? found.conf : (cfg.main ?? {});
+    const entry = found ? found.entry : 'main';
+    const system = petSystemPrompt(petId, cfg);
+    // 配图：全局开关关闭 / 池为空 / 池内图片全缺失 → 纯文本（不报错，退化为原行为）
+    const meme = conf.whisperImageEnabled === true ? pickMeme(readMemePool(conf.memes, memeDirsFor(entry))) : undefined;
+    // 模型：条目配置的 whisperModel 优先（留空 = 不指定）；生成侧失败会回落到当前对话的模型重试一次
+    const result = await generateWhisper(ctx, system, meme, configuredModel(conf, 'whisperModel'));
+    if (!result.ok) {
+      // 失败**不写 S**（与改造前一致：静默跳过 + console.warn，不伪造文案、不弹错误气泡）
+      console.warn(
+        '[desk-pet] 碎碎念生成失败 pet=' +
+          petId +
+          ' reason=' +
+          result.reason +
+          (result.message ? ' ' + result.message : ''),
+      );
+      return false;
+    }
+    state.writePet(petId, 'say', result.image ? { text: result.text, image: result.image } : { text: result.text });
+    return true;
+  };
+
+  /** 与某只宠物对话：截取最近记忆 → 生成回复 → 写入记忆 → 把回复写进 S 的 pets.<id>.say。
+   *  供 POST /chat（动作端点）与 /chat 命令共用同一条路径（锁内读写，防两端交错写盘）。
+   *  配图（chatImageEnabled 开启时）：把表情包清单交给模型按语境选一张，命中池内才随回复写回。 */
+  const chatWithPet = async (
+    petId: string,
+    text: string,
+  ): Promise<{ ok: true } | { ok: false; reason: 'provider-missing' | 'generate-error'; message?: string }> =>
+    withMemoryLock(async () => {
+      const cfg = readAllConfig(configPaths);
+      const rounds = memoryRounds(petId, cfg);
+      const found = findPetInstance(cfg, petId);
+      const conf = (found ?? { conf: cfg.main ?? {} }).conf;
+      // 人设：所属条目的 whisperPrompt（合并器已填默认）+ 名字声明（与碎碎念同一拼装）
+      const system = petSystemPrompt(petId, cfg);
+      // 配图：开关关闭 → 空池（指令与解析都不介入，与旧行为逐字一致）；目录链按所属条目取。
+      // 张数上限（chatImageLimit，0 = 不限制）：整张清单每条消息都要附，截断后费用上限可控。
+      const pool =
+        conf.chatImageEnabled === true
+          ? limitPool(readMemePool(conf.memes, memeDirsFor(found?.entry ?? 'main')), Number(conf.chatImageLimit))
+          : [];
+      const mem = await readMemory();
+      const bucketKey = found?.entry ?? petId;
+      const bucket = (mem[bucketKey] ??= {});
+      const entry = (bucket[petId] ??= { messages: [] });
+      // rounds = 0（用户关掉历史）→ 空历史；否则截尾部 rounds 轮（1 轮 = 1 问 1 答）。
+      // 不能写 slice(-rounds * 2)：-0 在 JS 里 === 0，slice(-0) 返回整个数组而不是空。
+      const list = sliceMemoryRounds(entry.messages, rounds);
+      // 模型：条目配置的 chatModel 优先（留空 = 不指定）；生成侧失败会回落到当前对话的模型重试一次
+      const generated = await generateChat(ctx, system, list, text, pool, configuredModel(conf, 'chatModel'));
+      if (!generated.ok) return generated;
+      const now = Date.now();
+      entry.messages.push({ role: 'user', content: text, ts: now });
+      // 记忆只存正文（配图属展示层，不进上下文——否则下次请求会把标记当历史读回去）
+      entry.messages.push({ role: 'assistant', content: generated.text, ts: now });
+      await writeMemory(mem);
+      // 回复写进 S（与碎碎念同一个叶子：前端本来就是同一条展示链路）
+      state.writePet(
+        petId,
+        'say',
+        generated.image ? { text: generated.text, image: generated.image } : { text: generated.text },
+      );
+      return { ok: true as const };
+    });
+
+  /**
+   * 当前生效宠物列表 = readAllConfig 成品拍平（main + 文件宠物全部条目；合并器已保证 id 唯一、
+   * 字段填满），命令与桌面模式都从这里取。
+   */
+  const effectivePetList = (): Record<string, unknown>[] => flattenPetList(readAllConfig(configPaths));
+
+  /** 碎碎念周期（秒）：该宠物**所属条目**的 eventsRefreshSec.whisper（合并器已填默认；非法兜底 300） */
+  const whisperPeriodSec = (cfg: Record<string, Record<string, unknown>>, petId: string): number => {
+    const conf = (findPetInstance(cfg, petId) ?? { conf: cfg.main ?? {} }).conf;
+    const ers = conf.eventsRefreshSec as Record<string, unknown> | undefined;
+    const n = Number(ers?.whisper);
+    return Number.isFinite(n) && n > 0 ? n : 300;
+  };
+
+  /** 默认交互对象：调用方没指定 pet 时用有效宠物列表的第一只（列表为空 → 空串） */
+  const resolveActivePetId = (): string => {
+    try {
+      const eff = effectivePetList();
+      return eff.length === 0 ? '' : String(eff[0].id);
+    } catch {
+      return '';
+    }
+  };
+
+  /**
+   * 配置自检（启动与每次重启 Helper 前）：读不出宠物列表时先打一行可定位的告警。
+   *
+   * Helper 本身**无条件**拉起——即使一只可见的宠物都没有：托盘是此时唯一还能把隐藏的宠物
+   * 送回桌面、以及退出桌宠的入口（桌宠由 hook 在后台拉起，没有终端可按 Ctrl+C），
+   * Helper 一缺席它就没了。
+   */
+  const checkPetConfig = (): void => {
+    try {
+      effectivePetList();
+    } catch (e) {
+      ctx.logger?.warn?.(`[desk-pet] 宠物配置非法：${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+  checkPetConfig();
+
+  /** 桌面可见宠物列表（[{id,size}]）：透传 Helper 决定创建几个局部窗口（每宠物一个）。 */
+  const desktopPetList = (): Array<{ id: string; size: number }> => {
+    try {
+      return effectivePetList()
+        .filter((p) => isDesktopVisible(p.display))
+        .map((p) => ({ id: String(p.id), size: Number(p.size) }));
+    } catch {
+      return [];
+    }
+  };
+
+  let helper: HelperProcess | undefined;
+  let startRetryTimer: NodeJS.Timeout | undefined;
+  let electronEnsure: Promise<void> | undefined;
+  let disposed = false;
+  /** 「无图形环境」提示只在进程生命周期内打一次，避免守护循环刷屏 */
+  let displayWarned = false;
+
+  /** 用已确认存在的 Electron 路径拉起桌面 Helper（每只桌面宠物一个局部小窗口）。 */
+  const launchHelper = (electronPath: string | undefined): void => {
+    if (helper || disposed) return;
+    const port = typeof ctx.webServer?.port === 'number' ? ctx.webServer.port : 0;
+    if (!port || port <= 0) {
+      // webServer 可能尚未完成监听（OS 分配端口时 port 短暂为 0）：延迟重试。
+      if (!startRetryTimer) {
+        startRetryTimer = setTimeout(() => {
+          startRetryTimer = undefined;
+          launchHelper(electronPath);
+        }, 500);
+        startRetryTimer.unref?.();
+      }
+      return;
+    }
+    const origin = `http://127.0.0.1:${port}`;
+    // 桌面渲染端也从同一份 handlePetRoute 拿成品配置（每只宠物一个局部小窗口；经管道，不走 HTTP）
+    const configUrl = `${origin}${ROUTE_PREFIX}/config`;
+    helper = new HelperProcess(
+      {
+        electronPath,
+        env: {
+          DESK_PET_CONFIG_URL: configUrl,
+          DESK_PET_SCALE: '1',
+          // 打开 bridge 协议：main.js 注册 desk-pet-bridge scheme，把渲染端请求经管道转给宿主
+          DESK_PET_BRIDGE: '1',
+          // 每只桌面宠物一个局部小窗口：透传宠物列表（[{id,size}]）
+          DESK_PET_PETS: JSON.stringify(desktopPetList()),
+        },
+        // bridge 协议处理器 = HTTP 路由同一份 handlePetRoute（业务逻辑唯一，两端天然一致）；
+        // 素材过文件路径（main.js 自行读盘），json/text 过 body
+        bridgeHandler: async (req) => {
+          const result = await handlePetRoute(req.url ?? '/', req.method ?? 'GET', req.body);
+          if (result.kind === 'file') {
+            // file 分支恒 200（404/400 已由 text 分支表达）
+            return { id: req.id, status: 200, contentType: result.contentType, file: result.file };
+          }
+          if (result.kind === 'text') {
+            return { id: req.id, status: result.status, contentType: 'text/plain; charset=utf-8', body: result.body };
+          }
+          if (result.kind === 'none') {
+            // 无需应答：管道侧不传 abort signal，正常到不了这里；保底给个空 204
+            return { id: req.id, status: 204, contentType: 'text/plain; charset=utf-8', body: '' };
+          }
+          return {
+            id: req.id,
+            status: result.status,
+            contentType: 'application/json; charset=utf-8',
+            body: JSON.stringify(result.obj),
+          };
+        },
+      },
+      ctx.logger ?? console,
+    );
+    try {
+      helper.start();
+      ctx.logger?.info?.(`desk-pet desktop helper started (config: ${configUrl})`);
+    } catch (e) {
+      ctx.logger?.warn?.(`desk-pet desktop helper start failed: ${e instanceof Error ? e.message : String(e)}`);
+      helper = undefined;
+    }
+  };
+
+  /** 拉起桌面 Helper：先探测本机 Electron；缺失时进程内异步下载
+   *  （不 spawn 子进程），下载完成后自动拉起。 */
+  const startHelper = (): void => {
+    if (helper || electronEnsure || disposed) return;
+    // 无图形显示环境（Linux 服务器 / 容器）：直接放弃，不探测、不下载、不拉起。
+    // 否则 Electron 会「拉起即崩」，被守护循环反复重启并刷满 core dump。
+    if (!hasGraphicalDisplay()) {
+      if (!displayWarned) {
+        displayWarned = true;
+        ctx.logger?.warn?.(
+          '[desk-pet] 未检测到图形显示环境（DISPLAY/WAYLAND_DISPLAY 均为空），已跳过桌面宠物。' +
+            'hook 照常接收；如需在服务器上启用桌面模式，请配置 Xvfb 后设置 DESK_PET_DESKTOP_FORCE=1。',
+        );
+      }
+      return;
+    }
+    const found = resolveElectronPath();
+    if (found) {
+      launchHelper(found);
+      return;
+    }
+    console.warn(`[desk-pet] Electron not found, downloading to ${defaultElectronExe()} ...`);
+    electronEnsure = ensureElectronDownload()
+      .then((path) => {
+        if (path) {
+          launchHelper(path);
+        } else {
+          console.warn(
+            '[desk-pet] Electron download failed; desktop pet unavailable. Set DESK_PET_ELECTRON_PATH and restart, or retry later.',
+          );
+        }
+      })
+      .finally(() => {
+        electronEnsure = undefined;
+      });
+  };
+
+  /** 停止桌面 Helper（保留配置，可再次拉起）。宿主退出/插件卸载路径：不等它退干净（见 stopAndWait）。 */
+  const stopHelper = (reason = 'settings-change'): void => {
+    if (startRetryTimer) {
+      clearTimeout(startRetryTimer);
+      startRetryTimer = undefined;
+    }
+    helper?.stop(reason);
+    helper = undefined;
+  };
+
+  /** 停止并**等旧 helper 真正退出**：配置变更触发的"停旧起新"专用（issue #64）。 */
+  const stopHelperAndWait = async (reason: string): Promise<void> => {
+    if (startRetryTimer) {
+      clearTimeout(startRetryTimer);
+      startRetryTimer = undefined;
+    }
+    const old = helper;
+    helper = undefined;
+    await old?.stopAndWait(reason);
+  };
+
+  /**
+   * 宠物配置（display / size 等）变更后：重解析桌面宠物，**等旧 helper 退出**再拉起新的。
+   *
+   * 为什么要等（issue #64）：Electron 收到 SIGTERM 后关窗是异步的（几百 ms 起），"发完 kill 就 spawn
+   * 新进程"会让旧窗口（旧大小）与新窗口（新大小）短暂共存——用户看到的就是"改完大小冒出来第二只宠物"。
+   * 为什么要串行：连续保存会触发多次重启，两次重启交错同样会同时拉起两个 helper，所以用队列串起来。
+   * 队列自身绝不留下 rejected 状态，否则后续保存再也不会重启 helper。
+   */
+  let desktopSyncQueue: Promise<void> = Promise.resolve();
+  const syncDesktop = (): Promise<void> => {
+    desktopSyncQueue = desktopSyncQueue
+      .then(async () => {
+        checkPetConfig();
+        await stopHelperAndWait('desktop-config-change');
+        startHelper();
+      })
+      .catch((e: unknown) => {
+        ctx.logger?.warn?.(`[desk-pet] 重启桌面 Helper 失败：${e instanceof Error ? e.message : String(e)}`);
+      });
+    return desktopSyncQueue;
+  };
+
+  /** 扩展名 → 素材子目录名（webm → webm/，mov → mov/；其余落在动画目录平级放行） */
+  const animSubdirFor = (ext: string): string => (ext === '.mov' ? 'mov' : 'webm');
+
+  /** 包内动画素材根：按扩展名取子目录（webm/ 随包发布；mov/ 不存在时为 404 兜底，仅 macOS 自维护）。 */
+  const assetRootFor = (ext: string): string => join(PACKAGE_ROOT, 'assets', animSubdirFor(ext));
+
+  /** 用户动画根：按扩展名取子目录（main-animation/webm 或 main-animation/mov）。 */
+  const userRootFor = (ext: string): string => join(thumbUserRoot, animSubdirFor(ext));
+
+  /** 单次业务路由(WebServer 注册 → HTTP 落盘 / 桌面 Helper 管道 → scheme 应答,共用同一份实现):
+   *  输入只需 rawUrl(/desk-pet/... + 查询) + method + body 文本;返回 RouteResult(JSON/文本/文件),
+   *  消费方各自落盘——业务逻辑只有一份,两端天然一致(硬契约:浏览器/桌面行为严格对齐)。
+   *  signal（可选）：调用方断开时**中止挂起等待**（只有 /playback 的 wait 分支会用到）。
+   *  管道侧不传——桌面渲染端不查 /playback；HTTP 侧由注册处按 res 的 close 触发。 */
+  const handlePetRoute = async (
+    rawUrl: string,
+    method: string,
+    body?: string,
+    signal?: AbortSignal,
+  ): Promise<RouteResult> => {
+    const url = new URL(rawUrl, 'http://localhost');
+    const rest = decodeURIComponent(url.pathname.slice(ROUTE_PREFIX.length + 1));
+
+    // 成品配置：/desk-pet/config（GET 读取合并成品 / PUT 保存用户层 / POST 同步内置默认）
+    if (rest === 'config') {
+      if (method === 'GET') {
+        // 唯一配置入口：readAllConfig 返回绝对正确的完成品聚合（{ main:{...}, test1:{...} }），
+        // 浏览器/桌面/设置页直接消费，无需任何校验/兜底
+        try {
+          // 动态配置必须杀缓存（与 /state 同口径）：消费端会「发现配置版本变化 → 重拉 /config」，
+          // 这一次 GET 若命中缓存就会拿回旧配置，那套机制直接失效。
+          return {
+            kind: 'json',
+            status: 200,
+            obj: readAllConfig(configPaths),
+            headers: { 'cache-control': 'no-cache, no-store' },
+          };
+        } catch (e) {
+          return { kind: 'json', status: 500, obj: { error: e instanceof Error ? e.message : String(e) } };
+        }
+      }
+      if (method === 'PUT') {
+        try {
+          const parsed = JSON.parse(body ?? '');
+          // 透传保留：读当前磁盘上的用户文件原对象，把非白名单顶层字段（physics/whisperPrompt/
+          // chatMemoryRounds/...）带回给 saveUserConfig——设置页保存不再抹掉用户手改的精调配置。
+          // **必须走 JSONC 容忍解析器**（readUserConfig）：用户层可能是「同步」写入的带 // 注释
+          // 的 config.jsonc 原文，用严格 JSON.parse 会在这里抛错并被吞掉 → existing 变 undefined
+          // → 白名单重建 → 用户的高级字段全丢（老 bug 的复发路径，已由守卫测试钉住）。
+          const existing = readUserConfig(configPaths);
+          const clean = saveUserConfig(parsed, existing);
+          if (!clean) {
+            return {
+              kind: 'json',
+              status: 400,
+              obj: {
+                error:
+                  'invalid pet config: expected { pets:[{name?,id,size,display,position:{corner,marginX,marginY}}] }（display 为 web/desktop/both/none 之一；可选顶层 whisperImageEnabled / chatImageEnabled / confineToScreen 布尔；可选宠物布尔 whisperEnabled / workStatusEnabled / fixedEnabled）',
+              },
+            };
+          }
+          // 损坏预检：用户层存在但连 JSONC 都解析不了（真损坏）→ **先不写盘**。
+          // 保存是白名单重建，existing 读不出来就等于把文件里剩下的内容整份丢掉，而且静默——
+          // 所以回 409 让设置页弹窗（取消 = 不动文件；确认 = 带 ?force=1 强行重建）。
+          if (url.searchParams.get('force') !== '1' && userConfigUnparsable(configPaths)) {
+            return {
+              kind: 'json',
+              status: 409,
+              obj: { error: 'user config is unparsable', needConfirm: true, userFile: userConfigPath },
+            };
+          }
+          await mkdir(userRoot, { recursive: true });
+          await writeFile(userConfigPath, JSON.stringify(clean, null, 2), 'utf8');
+          void syncDesktop(); // display/size 等可能变化：重解析桌面宠物并重启 Helper（异步，不阻塞保存响应）
+          // 响应体 = 保存后的**成品聚合**（与 GET /config 同一份，字段已填满）：
+          // 设置页把它直接交给容器的 flattenConfigPets 拍平渲染——客户端的条目级字段
+          // （动画池/权重/物理参数/工作状态文案）只有这一处填充，不再有第二份补吹实现。
+          return { kind: 'json', status: 200, obj: readAllConfig(configPaths) };
+        } catch {
+          return { kind: 'json', status: 400, obj: { error: 'invalid JSON body' } };
+        }
+      }
+      if (method === 'POST') {
+        // 同步：把内置默认配置（assets/config.jsonc 原文，含注释）整份写入用户配置——
+        // 既是「恢复默认」（合并结果 = 内置默认），又给用户留下一份可直接编辑的完整配置，
+        // 不必再自己从包内复制一份（见 config.ts 的 syncUserConfigFromDefault）。
+        try {
+          syncUserConfigFromDefault(configPaths);
+        } catch (e) {
+          // 默认文件缺失 / 用户目录不可写：显式 500，绝不静默留下半个配置文件
+          return { kind: 'json', status: 500, obj: { error: e instanceof Error ? e.message : String(e) } };
+        }
+        void syncDesktop(); // 配置变了：重解析桌面宠物并重启 Helper（异步，不阻塞响应）
+        return { kind: 'json', status: 200, obj: readAllConfig(configPaths) };
+      }
+      return { kind: 'json', status: 405, obj: { error: 'method not allowed' } };
+    }
+
+    // 单只宠物的显示位置（桌面端右键「关闭桌面显示」→ POST /pet-display）。
+    // 高频操作，故只收 id + display 两个参数，不要求调用方回传整段 pets（那是 PUT /config 的形态：
+    // 客户端做读-改-写既容易误伤同层其它宠物，也拿不准该写哪一层）。
+    // 层归属由服务端反查：id 在合并后被 mergePet 保证**全局唯一**（重复实例会被跳过、不进聚合），
+    // 所以 findPetInstance 的结果没有歧义；反过来让客户端传 entry 只会多出"参数与真实归属不符"的
+    // 新失败面（还平白把 entry 暴露成拼文件路径的输入）。
+    // 写入语义与 PUT /config 完全一致：saveUserConfig 白名单重建 + existing 透传——用户手改的
+    // whisperPrompt / memes 等非白名单字段不许被抹掉（见 ./config 里那段老 bug 的注释）。
+    if (rest === 'pet-display') {
+      if (method !== 'POST') return { kind: 'json', status: 405, obj: { error: 'method not allowed' } };
+      let payload: { id?: unknown; display?: unknown };
+      try {
+        payload = JSON.parse(body ?? '') as { id?: unknown; display?: unknown };
+      } catch {
+        return { kind: 'json', status: 400, obj: { error: 'invalid JSON body' } };
+      }
+      const petId = typeof payload.id === 'string' ? payload.id.trim() : '';
+      const nextDisplay = String(payload.display ?? '');
+      if (!petId) return { kind: 'json', status: 400, obj: { error: 'missing pet id' } };
+      if (!PET_DISPLAY_SET.has(nextDisplay)) {
+        return { kind: 'json', status: 400, obj: { error: `invalid display: ${nextDisplay}` } };
+      }
+      let merged: Record<string, Record<string, unknown>>;
+      try {
+        merged = readAllConfig(configPaths);
+      } catch (e) {
+        return { kind: 'json', status: 500, obj: { error: e instanceof Error ? e.message : String(e) } };
+      }
+      // 命中不到有两种可能：id 根本不存在，或该实例在合并时**因 id 与其它条目重复被跳过**（于是不在
+      // 聚合里）。两种都只能回 404——绝不能凭 id 去猜它"应该"属于哪个文件。
+      const hit = findPetInstance(merged, petId);
+      if (!hit) return { kind: 'json', status: 404, obj: { error: `pet not found: ${petId}` } };
+      // 目标层：main → 用户主配置；其余 → 文件宠物自己的配置（.json 或 .jsonc，定位统一走 ./config）
+      let layerPath: string;
+      let layerDir: string;
+      let existing: Record<string, unknown> | undefined;
+      if (hit.entry === 'main') {
+        layerPath = userConfigPath;
+        layerDir = userRoot;
+        existing = readUserConfig(configPaths);
+      } else {
+        const file = readPetConfigEntry(configPaths, hit.entry);
+        if (!file) {
+          return { kind: 'json', status: 404, obj: { error: `pet config file not found: ${hit.entry}` } };
+        }
+        layerPath = file.path;
+        layerDir = petConfigDir;
+        existing = file.raw;
+      }
+      // 整段替换语义：saveUserConfig 重建的是整个 pets 数组，必须带上**该层全部**宠物，只把目标
+      // 那只的 display 换掉（漏掉别的 = 把它们从配置里删掉）。
+      const layerPets = Array.isArray(hit.conf.pets) ? (hit.conf.pets as Record<string, unknown>[]) : [];
+      const pets = layerPets.map((p) => (String(p.id) === petId ? { ...p, display: nextDisplay } : p));
+      const clean = saveUserConfig({ pets }, existing);
+      if (!clean) return { kind: 'json', status: 400, obj: { error: 'invalid pet config' } };
+      try {
+        await mkdir(layerDir, { recursive: true });
+        await writeFile(layerPath, JSON.stringify(clean, null, 2), 'utf8');
+      } catch (e) {
+        return { kind: 'json', status: 500, obj: { error: e instanceof Error ? e.message : String(e) } };
+      }
+      // 配置变更信号（**只在写盘成功之后**：失败时不该动版本号，否则浏览器白重拉一次 /config）。
+      // 这是全插件**唯一**写 sections.config 的地方：保存 / 同步配置的调用方自己就拿到了成品聚合
+      // （响应体），桌面端由下面的 syncDesktop() 重启，都不需要这个信号；
+      // 而桌面端右键改 display 时浏览器页面**不是发起方**，只能靠它发现「配置被别处改过」。
+      state.writeSection('config', {});
+      // 不 await：发起者很可能就是**即将被这次重载换掉的**桌面 Helper（与 /reload 同一处境）。
+      // 写盘已经落定，重启结果不需要回给调用方。
+      void syncDesktop();
+      // 响应体 = 改动后的**成品聚合**（与 PUT / POST /config 同形）：调用方（浏览器端右键菜单）
+      // 直接把它交给 petBridge.reload，不必再发一次 GET /config —— 与设置页保存走的是同一条路，
+      // 也就不会拿到可能陈旧的配置（现场表现：不返回聚合时浏览器端要刷新才生效）。
+      return { kind: 'json', status: 200, obj: readAllConfig(configPaths) };
+    }
+
+    // 桌面端「重载配置」（右键菜单 → POST /reload）：重启桌面 Helper，全部桌面宠物窗口按最新配置重建。
+    // 与保存走**同一条**重启路径（syncDesktop：串行队列 + 等旧进程真正退出再起新的），
+    // 所以宠物数量 / display / size 的变化同样生效——渲染端就地重拉配置做不到这几项
+    // （每只宠物一个窗口，是宿主启动时按 DESK_PET_PETS 建的）。
+    // 注意：发起者就是**即将被重启的那个 helper**，本响应不保证送达，因此不 await 重启、立刻回 200。
+    if (rest === 'reload') {
+      if (method !== 'POST') return { kind: 'json', status: 405, obj: { error: 'method not allowed' } };
+      void syncDesktop();
+      return { kind: 'json', status: 200, obj: { reloading: true } };
+    }
+
+    // 可选模型清单：/desk-pet/models（GET）——数据来自 ctx.llm 的 listProviders / listModels
+    // （desk-pet 下是 Claude Code + 它认的模型别名），供配置 whisperModel / chatModel 的界面做下拉框。
+    // 只读、无副作用；某个服务商列模型失败只让它空着，不拖垮整张清单。
+    if (rest === 'models') {
+      if (method !== 'GET') return { kind: 'json', status: 405, obj: { error: 'method not allowed' } };
+      const llm = ctx.llm as
+        | {
+            listProviders?: () => Array<{ id?: unknown; name?: unknown }>;
+            listModels?: (provider: string) => Promise<Array<{ id?: unknown; name?: unknown }>>;
+          }
+        | undefined;
+      const named = (id: unknown, name: unknown): { id: string; name: string } => {
+        const pid = String(id ?? '');
+        return { id: pid, name: String(name ?? '') || pid };
+      };
+      try {
+        const providers = (typeof llm?.listProviders === 'function' ? llm.listProviders() : [])
+          .map((p) => named(p?.id, p?.name))
+          .filter((p) => p.id);
+        const catalog = await Promise.all(
+          providers.map(async (p) => {
+            let models: Array<{ id: string; name: string }> = [];
+            try {
+              const list = await llm?.listModels?.(p.id);
+              models = (Array.isArray(list) ? list : []).map((m) => named(m?.id, m?.name)).filter((m) => m.id);
+            } catch {
+              /* 单个服务商列不出模型：留空即可 */
+            }
+            return { ...p, models };
+          }),
+        );
+        return { kind: 'json', status: 200, obj: { providers: catalog } };
+      } catch (e) {
+        return { kind: 'json', status: 500, obj: { error: e instanceof Error ? e.message : String(e) } };
+      }
+    }
+
+    // 轮询统一状态（S）：/desk-pet/state（GET，no-cache）——前端轮询的**唯一**数据源
+    // （工作状态 / 配置变更信号 / 宠物说话，形状见 ./state）。
+    // 只读、纯内存、**零副作用**：绝不在这里触发外部调用或模型生成——那会把所有人的轮询拖死；
+    // 也**不在这里碰磁盘**（早先这里现算配置文件的 mtime 指纹，等于每拍读一次盘，
+    // 桌面端一窗一宠各自轮询 → N 倍；配置变更信号已改走 sections.config 叶子）。
+    //
+    // **长轮询**：带 `?since=&timeout=`（成对必填）时，若调用方手里的版本与当前相同就**挂起**，
+    // 直到任意叶子被写过（立刻返回）或超时。不带这两个参数 = 立刻返回全量（改造前的语义）。
+    // 等待语义与 GET /playback/{id} 的 wait 是同一套：上限同值、断线走同一个 signal 收尸、
+    // 卸载走 cancelAll()。区别只有一个——那边的唤醒条件是"某条记录进入某个状态"，
+    // 这边是"任意叶子被写过"，所以等待者是全局集合，一次写入唤醒所有人。
+    if (rest === 'state') {
+      if (method !== 'GET') return { kind: 'json', status: 405, obj: { error: 'method not allowed' } };
+      const headers = { 'cache-control': 'no-cache, no-store' };
+      const parsed = parseStateWaitQuery(url.searchParams.get('since'), url.searchParams.get('timeout'));
+      if (parsed.kind === 'error') return { kind: 'json', status: 400, obj: { error: parsed.error } };
+      const current = state.read();
+      // 两者都没传 → 立刻返回；已经有新东西 → 也立刻返回（别白等一整个 timeout）。
+      // timeout=0 走挂起分支，下一拍就醒，等价"立刻返回"，这里不特判。
+      if (parsed.kind === 'none' || current.counter !== parsed.since) {
+        return { kind: 'json', status: 200, obj: current, headers };
+      }
+      const since = parsed.since;
+      return await new Promise<RouteResult>((resolveWait) => {
+        let settled = false;
+        /** 收尾：只认第一次（唤醒 / 超时 / 取消 / 调用方断开 都可能先后到达） */
+        const settle = (result: RouteResult): void => {
+          if (settled) return;
+          settled = true;
+          resolveWait(result);
+        };
+        // 唤醒时**才** read()：store 保证"叶子已写定"之后才叫醒，所以这里拿到的一定是新状态
+        const cancel = state.wait({
+          since,
+          timeoutMs: parsed.timeoutMs,
+          onWake: () => settle({ kind: 'json', status: 200, obj: state.read(), headers }),
+        });
+        // 调用方断开：取消等待者（清掉它的超时定时器），以"无需应答"收尾。
+        const onAbort = (): void => {
+          cancel();
+          settle({ kind: 'none' });
+        };
+        if (signal?.aborted) {
+          onAbort();
+          return;
+        }
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
+    }
+
+    // 碎碎念：/desk-pet/whisper?pet=<id>（POST = 立即让桌宠新说一句，返回 {ok}）
+    // 动作端点，**不返回文本**——文本走 S 的 pets.<id>.say（碎碎念/命令气泡/对话回复同一个叶子）。
+    // 手动语义不受 whisperEnabled 门控：那个字段只关自动周期（与改造前一致）。
+    if (rest === 'whisper') {
+      if (method !== 'POST') return { kind: 'json', status: 405, obj: { error: 'method not allowed' } };
+      const petId = String(url.searchParams.get('pet') ?? '');
+      try {
+        const ok = await publishWhisper(petId);
+        return { kind: 'json', status: 200, obj: ok ? { ok: true } : { ok: false, reason: 'generate-error' } };
+      } catch (e) {
+        return {
+          kind: 'json',
+          status: 200,
+          obj: { ok: false, reason: 'generate-error', message: e instanceof Error ? e.message : String(e) },
+        };
+      }
+    }
+
+    // 第三方投喂：/desk-pet/broadcast?pet=<id>（POST = 把一段**外部给定的**文本写进桌宠气泡）
+    // 与 /whisper 的区别：这个**不生成**，调用方自己给文本——宿主侧其他插件（女仆巡检等）
+    // 想说自己的话时用它，桌宠就成了那套人格的"实体"（见 issue #76）。
+    // 写入 S 的 pets.<id>.say —— 与碎碎念/对话回复**同一个叶子**，两端 1s 内自动显示，前端零改动。
+    // 动作端点，只回 {ok}；文本本身从 /state 读。
+    // 校验（不通过一律 HTTP 200 + ok:false，与 /chat 的失败口径一致）：
+    //   text 必填、trim 后非空（**不设长度限制，也不限频**：内容与频率由调用方自己负责）；
+    //   pet 缺省 = 第一只宠物（resolveActivePetId），须真实存在；
+    //   image / url **配图的两种形态，二选一**（两个都给 = bad-request）：
+    //     image 只认**该条目表情包池内的名称**（池内命中即用其规范名）；
+    //     url 是第三方自带的完整地址，不查池（issue #122 第 1 条：素材由第三方自己托管），
+    //     scheme 由宿主卡在 http/https。**宿主不做代理**：跨域由浏览器强制，插件绕不过去。
+    //   duration 可选，气泡显示时长（ms）；缺省 10s，`0` = 字面意思「不显示」，负数/非有限数拒绝；
+    //   anim 可选，是否联动 events.whisper 动画；只有严格 false 才关闭（宽松口径）。
+    if (rest === 'broadcast') {
+      if (method !== 'POST') return { kind: 'json', status: 405, obj: { error: 'method not allowed' } };
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(body ?? 'null');
+      } catch {
+        return { kind: 'json', status: 400, obj: { error: 'invalid JSON body' } };
+      }
+      const o = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+      // 空文本不需要读配置就能判定：先短路，别为一个必然失败的请求去碰磁盘
+      if (!normalizeBroadcastText(o.text)) {
+        return { kind: 'json', status: 200, obj: { ok: false, reason: 'bad-request', message: 'text 为空' } };
+      }
+      // duration 同理：判定不需要配置，先短路（anim 没有非法值，宽松口径下永远有结论）
+      const duration = normalizeBroadcastDuration(o.duration);
+      if (duration === null) {
+        return {
+          kind: 'json',
+          status: 200,
+          obj: { ok: false, reason: 'bad-request', message: 'duration 必须是 ≥0 的有限数字（毫秒）' },
+        };
+      }
+      const anim = normalizeBroadcastAnim(o.anim);
+      try {
+        const cfg = readAllConfig(configPaths);
+        const d = decideBroadcast({
+          cfg,
+          requested: String(url.searchParams.get('pet') ?? ''),
+          active: resolveActivePetId(),
+          text: o.text,
+          image: o.image,
+          url: o.url,
+          duration,
+          anim,
+          memeDirs: memeDirsFor,
+        });
+        if (!d.ok) return { kind: 'json', status: 200, obj: { ok: false, reason: d.reason, message: d.message } };
+        // duration / anim 写**解析后的生效值**（缺省也已填成显式值）：/state 里因此能看到
+        // 实际生效的时长与联动开关，调用方不用自己猜缺省是多少。
+        // 配图两种形态二选一（判定层保证）：url 形态写 url，名称形态写池内规范名，都没有则纯文本。
+        const pic = d.url !== undefined ? { url: d.url } : d.image !== undefined ? { image: d.image } : {};
+        state.writePet(d.petId, 'say', { text: d.text, ...pic, duration: d.duration, anim: d.anim });
+        return { kind: 'json', status: 200, obj: { ok: true } };
+      } catch (e) {
+        // 配置读取失败等（安装损坏）→ 显式失败，不静默
+        return {
+          kind: 'json',
+          status: 200,
+          obj: { ok: false, reason: 'generate-error', message: e instanceof Error ? e.message : String(e) },
+        };
+      }
+    }
+
+    // 清空气泡：/desk-pet/bubble/clear?pet=<id>（POST = 收起该宠物**当前正显示的说话气泡**）
+    // 与 /broadcast 的关系：投喂写气泡，这个收气泡；两者共用同一个叶子（pets.<id>.say）。
+    // 清空靠叶子里的 `{ clear: true }` 标记——**空文本表达不了这个动作**：消费端的 readSay
+    // 会把空文本判成非法、整拍跳过，所以必须有一个独立的形态（见 src/shared/state.ts 的 SayCue）。
+    // 只收说话气泡：工作状态气泡、以及 anim/position/throw 三个叶子**都不动**
+    // （气泡与动作是两把锁，分别释放——issue #122 第 5 条）。
+    // 幂等：当前没有气泡也回 { ok: true }（"让气泡消失"这个意图在空状态下已经成立）。
+    // 无请求体；动作端点，只回 {ok}。
+    if (rest === 'bubble/clear') {
+      if (method !== 'POST') return { kind: 'json', status: 405, obj: { error: 'method not allowed' } };
+      try {
+        const cfg = readAllConfig(configPaths);
+        const d = decideBubbleClear({
+          cfg,
+          requested: String(url.searchParams.get('pet') ?? ''),
+          active: resolveActivePetId(),
+        });
+        if (!d.ok) return { kind: 'json', status: 200, obj: { ok: false, reason: d.reason, message: d.message } };
+        state.writePet(d.petId, 'say', { clear: true });
+        return { kind: 'json', status: 200, obj: { ok: true } };
+      } catch (e) {
+        return {
+          kind: 'json',
+          status: 200,
+          obj: { ok: false, reason: 'generate-error', message: e instanceof Error ? e.message : String(e) },
+        };
+      }
+    }
+
+    // 点播动画：/desk-pet/anim?pet=<id>（POST = 让桌宠播一段动画）
+    // 两种形态**二选一**（issue #122 第 1 条）：
+    //   name = 池内的动画名。效果与右键菜单点「动作」树**完全一致**——两端都复用同一个菜单动作
+    //     处理函数（浏览器 handleMenuAction / 桌面 sprite.onMenuAction），宿主只负责把名字送到。
+    //     写入 S 的 pets.<id>.anim，前端发现 counter 变化后换源播放（**名字即文件名**）。
+    //   url = 第三方自带的素材完整地址。**不查动画池**（素材在别人手里，池里当然没有这个名字），
+    //     前端拿到后**直接换源播一次，不走菜单语义**——裸地址没有"文字类要镜像修正 /
+    //     移动类走真实位移"这些属性。scheme 由宿主卡在 http/https。
+    // 动作端点，只回 {ok}（成功时另带回执编号 playbackId）。
+    // 校验（不通过一律 HTTP 200 + ok:false，与其他动作端点口径一致）：
+    //   name / url 必须**恰好给一个**：两个都给或都不给 = 意图不明 → bad-request；
+    //   name 必须在该宠物 animations 配置能点到的集合内
+    //   （播放端对不存在的动画没有兜底：名字即文件名 → 404 → 加载失败 → 表现为"点了没反应"，
+    //    所以必须在这里拦住，而不是写进 S 让前端白跑一趟）；
+    //   url 必须是 http/https 的完整地址（`file:` 会让桌面端渲染进程能读本地任意文件）；
+    //   pet 缺省 = 第一只宠物（resolveActivePetId），须真实存在。
+    if (rest === 'anim') {
+      if (method !== 'POST') return { kind: 'json', status: 405, obj: { error: 'method not allowed' } };
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(body ?? 'null');
+      } catch {
+        return { kind: 'json', status: 400, obj: { error: 'invalid JSON body' } };
+      }
+      const o = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+      try {
+        const cfg = readAllConfig(configPaths);
+        const d = decideAnim({
+          cfg,
+          requested: String(url.searchParams.get('pet') ?? ''),
+          active: resolveActivePetId(),
+          name: o.name,
+          url: o.url,
+        });
+        if (!d.ok) return { kind: 'json', status: 200, obj: { ok: false, reason: d.reason, message: d.message } };
+        // 播放回执：受理时建记录（accepted），并把编号随叶子一起下发——渲染端据此上报。
+        // 记录里的标识：name 形态是动画名，url 形态就是那个地址（纯记录，不参与任何判定）。
+        // 叶子形状：name 与 url **恰好一个**（判定层保证），消费端按字段名决定走不走菜单语义
+        // ——url 是裸地址，没有"文字类要镜像修正 / 移动类走真实位移"这些属性。
+        const record = playback.create(d.petId, d.url ?? d.name ?? '');
+        state.writePet(
+          d.petId,
+          'anim',
+          d.url !== undefined
+            ? { url: d.url, playbackId: record.playbackId }
+            : { name: d.name, playbackId: record.playbackId },
+        );
+        return { kind: 'json', status: 200, obj: { ok: true, playbackId: record.playbackId } };
+      } catch (e) {
+        // 配置读取失败等（安装损坏）→ 显式失败，不静默
+        return {
+          kind: 'json',
+          status: 200,
+          obj: { ok: false, reason: 'generate-error', message: e instanceof Error ? e.message : String(e) },
+        };
+      }
+    }
+
+    // 位置与抛掷：/desk-pet/position 与 /desk-pet/throw（POST）——两条**运动指令**。
+    //
+    // 与 /anim 同族：受理后写进 S 的宠物叶子（pets.<id>.position / pets.<id>.throw），由渲染端消费。
+    // 位置**不引入任何新运动学**：`mode` 三选一（instant 一帧到位 / spring 拖拽那套过阻尼弹簧 /
+    // line 按 duration 毫秒直线走到），三条路都是渲染端已经有的；抛掷复用已有的 startThrow
+    // （角度/力度换算成初速度），下游的重力/反弹/摩擦/落地 Q 弹/宠物间碰撞一概照旧。
+    // 所以这里只做校验与夹取（纯逻辑在 ./motion-cue，可离线单测）。
+    //
+    // 位置：x/y 是宠物**中心**的归一化坐标（0~1），越界**夹取**并把实际生效值回给调用方。
+    // 抛掷：angle 单位度（0 = 正右，逆时针为正）；power 是力度倍率（1.0 = 1200 px/s 软钳速前）。
+    //
+    // 与用户拖拽撞车时**静默丢弃**：渲染端发现手指正按在宠物身上就丢掉这一拍，但仍然回 ok:true
+    // （动作端点只表示"受理了"，不表示"生效了"，与 /anim 同一契约）。宿主判不了拖拽状态——
+    // 那只有渲染端知道（见两端的 active 标志），所以这里不做拒绝。
+    if (rest === 'position' || rest === 'throw') {
+      const isPosition = rest === 'position';
+      if (method !== 'POST') return { kind: 'json', status: 405, obj: { error: 'method not allowed' } };
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(body ?? 'null');
+      } catch {
+        return { kind: 'json', status: 400, obj: { error: 'invalid JSON body' } };
+      }
+      const o = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+      try {
+        const cfg = readAllConfig(configPaths);
+        const requested = String(url.searchParams.get('pet') ?? '');
+        const active = resolveActivePetId();
+        if (isPosition) {
+          const d = decidePosition({
+            cfg,
+            requested,
+            active,
+            x: o.x,
+            y: o.y,
+            mode: o.mode,
+            duration: o.duration,
+          });
+          if (!d.ok) return { kind: 'json', status: 200, obj: { ok: false, reason: d.reason, message: d.message } };
+          // 叶子按模式收敛成最小形状：非 line 模式不带 duration（见 positionLeafData）
+          state.writePet(d.petId, 'position', positionLeafData(d));
+          // 回**夹取后**的实际生效值：调用方不必自己算边界，也不会误以为越界值被照单全收
+          return { kind: 'json', status: 200, obj: { ok: true, x: d.x, y: d.y } };
+        }
+        const d = decideThrow({ cfg, requested, active, angle: o.angle, power: o.power });
+        if (!d.ok) return { kind: 'json', status: 200, obj: { ok: false, reason: d.reason, message: d.message } };
+        state.writePet(d.petId, 'throw', { angle: d.angle, power: d.power });
+        return { kind: 'json', status: 200, obj: { ok: true } };
+      } catch (e) {
+        // 配置读取失败等（安装损坏）→ 显式失败，不静默（与 /anim 同一口径）
+        return {
+          kind: 'json',
+          status: 200,
+          obj: { ok: false, reason: 'generate-error', message: e instanceof Error ? e.message : String(e) },
+        };
+      }
+    }
+
+    // 播放回执：/desk-pet/playback/<id>        （GET 查询，可挂起等待）
+    //           /desk-pet/playback/<id>/report （POST，**渲染端上报**）
+    //
+    // 记录由**渲染端上报驱动**（见 ./playback）：host 只知道"受理了"，不知道播没播完——
+    // 所以没有 /report 就没有真实回执，查询永远停在 accepted。
+    // 与 S 无关：播放记录是 per-caller 资源（只有发起那次点播的调用方关心、有生命周期、
+    // 数量随第三方调用方增长），放进 1s 全局广播会让每个窗口为每个功能付流量。
+    // 前缀守卫写成**字面量比较**：一是把正则尝试限定在 playback 段（更快、边界更明确），
+    // 二是让 scripts/check-openapi.mjs 的「文档 ↔ 路由实现」对齐检查能认出这条路由
+    //（它靠 rest 与单引号段名的字面量比较从实现里提取路由，纯正则形式的匹配它看不见；
+    //  注意注释里别把那个比较原样写出来，会被同一条正则当成一条真实路由）。
+    const playbackPath = rest === 'playback' || rest.startsWith('playback/') ? parsePlaybackPath(rest) : undefined;
+    if (playbackPath) {
+      const playbackId = playbackPath.playbackId;
+      // ---- 上报（渲染端 → host）：开始播 / 播完 / 失败 / 被打断时各来一次 ----
+      if (playbackPath.isReport) {
+        if (method !== 'POST') return { kind: 'json', status: 405, obj: { error: 'method not allowed' } };
+        let reported: unknown;
+        try {
+          reported = JSON.parse(body ?? 'null');
+        } catch {
+          return { kind: 'json', status: 400, obj: { error: 'invalid JSON body' } };
+        }
+        const o = reported && typeof reported === 'object' ? (reported as Record<string, unknown>) : {};
+        const outcome = playback.report(playbackId, o.status, o.reason);
+        if (outcome === 'unknown') return { kind: 'json', status: 404, obj: { error: 'unknown playback' } };
+        if (outcome === 'invalid') return { kind: 'json', status: 400, obj: { error: 'invalid status' } };
+        // ok / ignored 都回 200：上报是幂等的，"已经这样了"对上报方就是成功
+        // （迟到的 ended 不许覆盖 cancelled——终态保护在 ./playback 里）
+        return { kind: 'json', status: 200, obj: { ok: true } };
+      }
+      // ---- 查询（第三方调用方）----
+      if (method !== 'GET') return { kind: 'json', status: 405, obj: { error: 'method not allowed' } };
+      const record = playback.get(playbackId);
+      if (!record) return { kind: 'json', status: 404, obj: { error: 'unknown playback' } };
+      const parsed = parseWaitQuery(url.searchParams.get('wait'), url.searchParams.get('timeout'));
+      if (parsed.kind === 'error') return { kind: 'json', status: 400, obj: { error: parsed.error } };
+      // 两者都没传 = 立刻返回（兜底 / 调试 / 只想知道当下状态的调用方）
+      if (parsed.kind === 'none') {
+        return { kind: 'json', status: 200, obj: { ...record, matched: false } };
+      }
+      const { wait: waitList, timeoutMs } = parsed;
+      // 已经是等的状态之一 → 立刻返回，别白等一整个 timeout
+      if (waitList.includes(record.status)) {
+        return { kind: 'json', status: 200, obj: { ...record, matched: true } };
+      }
+      // 挂起等待：状态进入 wait 集合立刻唤醒（matched:true）；到点回当时的记录（matched:false）。
+      // timeout=0 时 playback.wait 下一拍就唤醒，等价"立刻返回"，这里不特判。
+      return await new Promise<RouteResult>((resolveWait) => {
+        let settled = false;
+        /** 收尾：只认第一次（唤醒 / 超时 / 取消 / 调用方断开 都可能先后到达） */
+        const settle = (result: RouteResult): void => {
+          if (settled) return;
+          settled = true;
+          resolveWait(result);
+        };
+        const cancel = playback.wait({
+          playbackId,
+          wait: waitList,
+          timeoutMs,
+          // 唤醒时**不需要**再取消：store 在回调前已把等待者摘掉（超时定时器也清了）
+          onWake: (r, matched) => settle({ kind: 'json', status: 200, obj: { ...r, matched } }),
+        });
+        // get 之后记录被清理（极端竞态）→ 立刻 404，不挂
+        if (cancel === undefined) {
+          settle({ kind: 'json', status: 404, obj: { error: 'unknown playback' } });
+          return;
+        }
+        // 调用方断开：取消等待者（清掉它的超时定时器），以"无需应答"收尾。
+        // 监听不摘也无妨：signal 只被这次请求持有，请求结束后整条引用链一起回收。
+        const onAbort = (): void => {
+          cancel();
+          settle({ kind: 'none' });
+        };
+        if (signal?.aborted) {
+          onAbort();
+          return;
+        }
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
+    }
+
+    // 对话：/desk-pet/chat?pet=<id>
+    //   GET  —— 最近记忆窗口（截尾 chatMemoryRounds 轮），弹窗打开时展示（一次性读，不是轮询）
+    //   POST —— 携带历史生成回复并写入记忆；**只回 {ok}**，回复走 S 的 pets.<id>.say
+    // 记忆唯一读写方 = host（memory.json；浏览器/桌面两端都只是客户端）→
+    // 同一实例的浏览器与桌面天然共享同一份记忆；文件全存不删，
+    // 请求只截尾部 chatMemoryRounds 轮（1 轮 = 1 问 1 答；合并器已按条目填默认）。
+    if (rest === 'chat') {
+      const petId = String(url.searchParams.get('pet') ?? '');
+      try {
+        if (method === 'GET') {
+          const cfg = readAllConfig(configPaths);
+          const mem = await readMemory();
+          const bucket = mem[findPetInstance(cfg, petId)?.entry ?? petId] ?? {};
+          const list = (bucket[petId]?.messages ?? []).slice();
+          const rounds = memoryRounds(petId, cfg);
+          // 与 chatWithPet 同一语义：rounds = 0 → 空历史（slice(-0) 会返回整个数组，见上）
+          const messages = sliceMemoryRounds(list, rounds);
+          return { kind: 'json', status: 200, obj: { ok: true, messages, rounds } };
+        }
+        if (method === 'POST') {
+          const parsed = (JSON.parse(body ?? 'null') as Record<string, unknown> | null) ?? {};
+          const text = typeof parsed.text === 'string' ? parsed.text.trim() : '';
+          if (!text) {
+            return { kind: 'json', status: 200, obj: { ok: false, reason: 'bad-request', message: '消息为空' } };
+          }
+          if (text.length > 2000) {
+            return {
+              kind: 'json',
+              status: 200,
+              obj: { ok: false, reason: 'bad-request', message: '消息过长（限 2000 字）' },
+            };
+          }
+          const result = await chatWithPet(petId, text);
+          return { kind: 'json', status: 200, obj: result };
+        }
+        return { kind: 'json', status: 405, obj: { error: 'method not allowed' } };
+      } catch (e) {
+        // 配置已由 readAllConfig 保证正确（不再有 config-error 分支）；其余（IO/LLM）→ generate-error
+        return {
+          kind: 'json',
+          status: 200,
+          obj: { ok: false, reason: 'generate-error', message: e instanceof Error ? e.message : String(e) },
+        };
+      }
+    }
+
+    // 动画文件：/desk-pet/thumb/<素材根>/<file>，扩展名 webm（默认）/ mov（macOS 定制）。
+    // 素材归属按「是否存在该宠物的独立素材目录 `pet/<petId>-animation/`」判定：
+    //   - 存在（pet pack 宠物）：只查自己的目录，查不到即 404 显式报错——绝不混用
+    //   - 不存在（**所有主配置宠物**，main 与用户添加的任意多只）：主素材链
+    //     main-animation/<webm|mov> 优先 → 包内 assets/<webm|mov>（与宠物数量无关，多只共用）
+    // mov（HEVC-with-Alpha）为 macOS Safari/WKWebView 定制格式：默认不随包发布，
+    // 用户从 GitHub Release（assets-mov）下载后放 main-animation/mov/，并把客户端播放
+    // 扩展名常量（src/shared/constants.ts 的 ANIMATION_EXT / 产物 lib/client.js）改为 .mov。
+    // 注意：font / pic 是扁平的 /<scope>/<file>，只有 thumb 是 /<scope>/<petId>/<file>——
+    // 这里先拆 scope，再按 scope 各自拆剩余段，避免 font/pic 被误当作 petId 吞掉文件段。
+    const [scope, ...restParts] = rest.split('/');
+    if (scope === 'font') {
+      const fontRoot = join(PACKAGE_ROOT, 'assets', 'fonts');
+      const fontFile = resolveExisting(fontRoot, restParts.join('/'));
+      if (fontFile === undefined) return { kind: 'text', status: 404, body: 'desk-pet: font not found' };
+      const ext = fontFile.slice(fontFile.lastIndexOf('.')).toLowerCase();
+      return { kind: 'file', file: fontFile, contentType: MIME[ext] ?? 'application/octet-stream' };
+    }
+
+    // 光标等小图：/desk-pet/pic/<file> → 包内 assets/pic
+    // 表情包：/desk-pet/pic/memes/<素材根>/<名称>.png → 按素材根走 memeDirsFor 的目录链
+    // （种类独占目录 → 用户目录 → 包内），与 /thumb 同一套素材归属语义；名称含中文，URL 段已在上方解码。
+    // 旧的两段形式 /pic/memes/<名称>.png 保留：等价于素材根 main 的目录链（未升级的客户端照常取到包内图）。
+    if (scope === 'pic') {
+      if (restParts[0] === 'memes') {
+        const segs = restParts.slice(1);
+        // 段数 ≥ 2 = <素材根>/<名称…>；恰好 1 段 = 旧扁平形式。表情包名称即文件名（不含子目录），
+        // 所以两种形式不歧义；素材根与 /thumb 的 petId 同规矩：含分隔符 / 保留字符即显式 400。
+        const scoped = segs.length >= 2;
+        const assetRoot = scoped ? segs[0] : 'main';
+        if (scoped && (assetRoot.length > 64 || ID_FORBIDDEN.test(assetRoot))) {
+          return { kind: 'text', status: 400, body: 'desk-pet: invalid asset root' };
+        }
+        const rel = (scoped ? segs.slice(1) : segs).join('/');
+        let picFile: string | undefined;
+        for (const dir of memeDirsFor(assetRoot)) {
+          picFile = resolveExisting(dir, rel);
+          if (picFile !== undefined) break;
+        }
+        if (picFile === undefined) return { kind: 'text', status: 404, body: 'desk-pet: pic not found' };
+        const ext = picFile.slice(picFile.lastIndexOf('.')).toLowerCase();
+        return { kind: 'file', file: picFile, contentType: MIME[ext] ?? 'application/octet-stream' };
+      }
+      const picRoot = join(PACKAGE_ROOT, 'assets', 'pic');
+      const picFile = resolveExisting(picRoot, restParts.join('/'));
+      if (picFile === undefined) return { kind: 'text', status: 404, body: 'desk-pet: pic not found' };
+      const ext = picFile.slice(picFile.lastIndexOf('.')).toLowerCase();
+      return { kind: 'file', file: picFile, contentType: MIME[ext] ?? 'application/octet-stream' };
+    }
+
+    if (scope !== 'thumb') {
+      return { kind: 'text', status: 400, body: 'desk-pet: expected /desk-pet/thumb/<petId>/<file>' };
+    }
+    // thumb 是三段式：/<scope>/<petId>/<file>——从这里再拆宠物 id 与文件名
+    const [petId, ...nameParts] = restParts;
+    if (!petId || nameParts.length === 0) {
+      return { kind: 'text', status: 400, body: 'desk-pet: expected /desk-pet/thumb/<petId>/<file>' };
+    }
+    // petId 是**标识符**（= pet/<名>-animation/ 的 <名>，来源是 pet/ 下的文件名前缀），不是路径片段：
+    // 含分隔符/保留字符即显式 400，早于任何路径拼接判定。合法名（含中文）照常——
+    // 用非法字符类而不是 ASCII 白名单。非法输入不再静默回落到主素材池（攻击尝试与"没有独立素材"可区分），
+    // 也给下面的 resolveAsset 之外再留一道结构性防线。
+    if (ID_FORBIDDEN.test(petId)) {
+      return { kind: 'text', status: 400, body: 'desk-pet: invalid pet id' };
+    }
+    const fileName = nameParts.join('/');
+    const ext = fileName.slice(fileName.lastIndexOf('.')).toLowerCase();
+    if (ext !== '.webm' && ext !== '.mov') {
+      return { kind: 'text', status: 400, body: 'desk-pet: unsupported animation format (expected .webm or .mov)' };
+    }
+    // 素材归属（按是否存在该宠物的独立素材目录判定，绝不静默混用）：
+    //   - 存在 `pet/<petId>-animation/`（pet pack 宠物，URL 段 = 素材根 assetRoot）：
+    //     只查自己的目录，查不到即 404 显式报错——绝不回落别的素材
+    //   - 不存在（**所有主配置宠物**：main 及用户添加的任意多只，共用全局动画池）：
+    //     主素材链——用户 main-animation/<ext 子目录> 优先，其次包内 assets/<ext 子目录>
+    // extraAnimDir 必须先过 resolveAsset：petId 是解码后的 URL 段，Windows 上 %5C 解出的
+    // 反斜杠不会被 rest.split('/') 切开，直接 join 会让 `..\..\x` 逃出用户根读盘。
+    const extraAnimDir = resolveAsset(petConfigDir, petId + '-animation');
+    const file =
+      extraAnimDir !== undefined && existsSync(extraAnimDir)
+        ? resolveExisting(extraAnimDir, fileName)
+        : (resolveExisting(userRootFor(ext), fileName) ?? resolveExisting(assetRootFor(ext), fileName));
+    if (file === undefined) return { kind: 'text', status: 404, body: 'desk-pet: asset not found' };
+    return { kind: 'file', file, contentType: MIME[ext] ?? 'application/octet-stream' };
+  };
+
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'prefix',
+        path: ROUTE_PREFIX,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          // 挂起等待（/playback?wait=）期间调用方可能提前断开：据此中止等待，
+          // 否则那个等待者要一直留到超时才回收。'close' 在正常应答后也会触发，但那时监听已摘掉。
+          const abort = new AbortController();
+          const onClose = (): void => abort.abort();
+          res.on('close', onClose);
+          try {
+            const body = req.method === 'PUT' || req.method === 'POST' ? await readBody(req) : undefined;
+            const result = await handlePetRoute(req.url ?? '/', req.method ?? 'GET', body, abort.signal);
+            res.off('close', onClose);
+            if (result.kind === 'json') sendJson(res, result.status, result.obj, result.headers);
+            else if (result.kind === 'text') sendText(res, result.status, result.body);
+            else if (result.kind === 'none') {
+              /* 调用方已断开：不再写（写了会抛） */
+            } else sendFile(res, result.file, result.contentType); // 非 async：流在 open 后自己 pipe，错误内部收口
+          } catch (e) {
+            res.off('close', onClose);
+            // 连接已断（挂起等待被中止后也可能撞上）→ 不再写，避免二次抛错
+            if (!res.destroyed && !res.writableEnded) {
+              sendJson(res, 500, { error: e instanceof Error ? e.message : String(e) });
+            }
+          }
+        },
+      }),
+    'desk-pet: /desk-pet asset route',
+  );
+
+  // 工作状态联动：订阅 session/event（Claude Code hook 的翻译结果）→ 聚合"当前活动状态"
+  // （WorkStatusStore → 展示快照）。消费的事件：turn/start、tool/call、tool/result、approval/asked、
+  // turn/end、todo/write（只更新任务详情文案，不切档位）。纯监听不调用模型。
+  ctx.effect(() => {
+    const dispose = ctx.on('session/event', (session: unknown, event: unknown) => {
+      const type = (event as { type?: string } | null)?.type;
+      if (!type) return;
+      const sessionId = String(
+        (session as { id?: unknown; header?: { id?: unknown } } | null)?.header?.id ??
+          (session as { id?: unknown } | null)?.id ??
+          'unknown',
+      );
+      if (type === 'todo/write') {
+        // 任务详情文案：只写**该会话**的条目（state/task 同源，不再有全局字段，也就不可能串会话）。
+        // 会话没有活动条目（已空闲/已清理）→ 不动：它不会被展示，写进去只会成为一条"幽灵文案"。
+        // 清单里再无 in_progress/pending 时 currentTaskFromTodo 返回 null，等于把旧文案清掉、
+        // 气泡回落到档位文案（issue #59 缺陷 3：档位文案不该被一条历史记录永久屏蔽）。
+        if (workStatus.has(sessionId)) {
+          workStatus.setTask(
+            sessionId,
+            currentTaskFromTodo(event as { data?: { todos?: Array<{ status?: string; content?: string }> } }),
+          );
+          publishWorkStatus(); // 任务文案变化也要写 S（气泡内容靠它更新）
+        }
+        return;
+      }
+      if (type === 'turn/start') {
+        // 新一轮开始新的任务上下文：清掉上一轮留下的任务详情文案（issue #59），否则它会一直挂着。
+        workStatus.setTask(sessionId, null);
+        publishWorkStatus(); // 清掉上一轮任务文案也要写 S
+      }
+      const next = reduceWorkStatus(
+        event as { type?: string; data?: Record<string, unknown> & { reason?: { kind?: string } } },
+      );
+      if (!next) {
+        // turn/end 的 null（aborted / 未知 kind）＝该会话回合已结束：清掉会话状态，让展示回到空闲或
+        // 落到其他活跃会话，防止回合被打断后永久卡在上一档；其他事件的 null 是"不关心"，忽略。
+        if (type === 'turn/end') {
+          cancelTerminalCleanup(sessionId); // 条目都要清了，别留一个到点后无事可做的定时器
+          workStatus.clear(sessionId); // 条目连同任务详情文案一起消失（clear 内部会重算展示）
+          publishWorkStatus(); // 回合被打断 → 回到空闲：前端据此收起常驻气泡
+        }
+        return;
+      }
+      const seq = Number((event as { seq?: unknown }).seq ?? 0);
+      // 同会话同状态不重复更新（防刷屏）；不同状态才改写并重算展示
+      if (!workStatus.setState(sessionId, next, seq)) return;
+      publishWorkStatus(); // 档位变了 → 写 S（前端据此切动画 + 气泡）
+      // 终态只展示短暂窗口后自动清理：陈旧完成态不再浮上来（Bug 3 的一环，顺带缓解 Bug 2 残留）。
+      // 回到非终态则取消那次待执行的清理——否则它到点时会话已非终态，既不清也不重排，
+      // 条目（连同旧任务文案）就永久留下了。
+      if (next === 'success' || next === 'error') scheduleTerminalCleanup(sessionId);
+      else cancelTerminalCleanup(sessionId);
+    });
+    return () => {
+      dispose();
+      for (const t of terminalTimers.values()) clearTimeout(t);
+      terminalTimers.clear();
+    };
+  }, 'desk-pet: work-status session events');
+
+  // 碎碎念周期：host 侧调度（前端不再有任何碎碎念定时器）。
+  // 一拍 = 读一次配置 + 给"到点"的宠物各生成一句；下一拍按**最短周期**排（多数部署只有一个
+  // 周期值，那它就是那个值）。用"读一次配置 + 逐宠物比对 lastWhisperAt"而不是每宠一个定时器：
+  // 宠物随配置增删、周期随条目改，固定拍天然跟上，不用维护一堆定时器的生命周期。
+  ctx.effect(() => {
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    function arm(sec: number): void {
+      if (disposed) return;
+      timer = setTimeout(() => void tick(), Math.max(1000, sec * 1000));
+    }
+    function tick(): void {
+      let next = 300;
+      try {
+        const cfg = readAllConfig(configPaths);
+        const now = Date.now();
+        let min = Infinity;
+        for (const pet of flattenPetList(cfg)) {
+          const petId = String(pet.id ?? '');
+          if (!petId || pet.whisperEnabled !== true) continue;
+          const sec = whisperPeriodSec(cfg, petId);
+          min = Math.min(min, sec);
+          if (now - (lastWhisperAt.get(petId) ?? 0) < sec * 1000) continue;
+          lastWhisperAt.set(petId, now);
+          // 不 await：生成要几秒，别把调度拍拖住（每只宠物独立生成，互不阻塞）
+          void publishWhisper(petId).catch(() => {});
+        }
+        if (Number.isFinite(min)) next = min;
+      } catch {
+        // 读配置抛错 = 安装损坏：不再重排，别白占常驻句柄
+        return;
+      }
+      arm(next);
+    }
+    void tick(); // 启动即生成一次（与改造前客户端首拉就生成一致）
+    return () => {
+      disposed = true;
+      if (timer !== null) clearTimeout(timer);
+    };
+  }, 'desk-pet: whisper poll');
+
+  // 随生命周期清理：桌面 Helper 回收（异步下载完成后不再拉起）+ **结束所有挂起的等待**
+  // （回执的与 /state 长轮询的都不结束的话，插件重载会留下一批悬挂的响应，各自要等到超时才收尾）
+  ctx.effect(() => () => {
+    disposed = true;
+    playback.cancelAll();
+    state.cancelAll();
+    stopHelper('host-stop');
+  });
+
+  // 路由就绪后拉起桌面 Helper（Electron 缺失时仅告警，服务照常接收 hook）
+  startHelper();
+}

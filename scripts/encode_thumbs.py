@@ -1,7 +1,7 @@
 """Transcode step03 masters into 360x360 playback thumbnails (step04).
 
 素材处理链的第 4 步（转码）：把归一化后的 1200x1200 透明母版（step03/）
-转成 360x360 播放变体（step04/），供 dsh-pet 插件运行时使用。
+转成 360x360 播放变体（step04/），供 desk-pet 插件运行时使用。
 
 完整处理链（与 crop_step01.py / chroma_step02.py / normalize_step03.py 同级）：
   step01（原始视频）→ crop_step01.py → chroma_step02.py（绿幕抠像）
@@ -9,7 +9,7 @@
   → step03（母版）→ 本脚本 → step04（360x360 播放变体）
 
 step04 是素材处理链的最终产物。发布/安装插件时把 step04 的内容
-同步到 dsh-pet/assets/thumb/（npm 包需要自包含的播放资源）。
+同步到 desk-pet/assets/thumb/（npm 包需要自包含的播放资源）。
 
 为什么需要转码：
 - 播放时宠物只显示约 260px，360 分辨率已足够清晰，1200 是 4.6 倍冗余

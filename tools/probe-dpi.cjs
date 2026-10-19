@@ -7,9 +7,9 @@
  *   hwnd 归属由 MonitorFromWindow(MONITOR_DEFAULTTONEAREST) 按面积占比决定，骑缝时会翻转。
  *   两屏 scale 不同 ⇒ 翻转前后同一 DIP 值落到不同物理像素；scale 相同 ⇒ 两屏共用同一仿射变换，翻转无影响。
  *
- * 跑法（harness 自带 electron）：
- *   %APPDATA%\dsh-desktop-dev\harness\electron\electron.exe tools\probe-dpi.cjs
- *   %APPDATA%\dsh-desktop-dev\harness\electron\electron.exe tools\probe-dpi.cjs --force-device-scale-factor=1
+ * 跑法（用 desk-pet 下载的那份 electron）：
+ *   %USERPROFILE%\.desk-pet\electron\electron.exe tools\probe-dpi.cjs
+ *   %USERPROFILE%\.desk-pet\electron\electron.exe tools\probe-dpi.cjs --force-device-scale-factor=1
  *
  * 判读：DELTA 段全为 0 = 该 DIP 值不受窗口归属影响（DPI 换算已线性化）；非 0 = 骑缝翻转会跳变，
  * 数值即跳变幅度（物理像素）。加 --force-device-scale-factor 后应全部归零。

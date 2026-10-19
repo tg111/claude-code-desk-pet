@@ -16,7 +16,7 @@
  * 另外它还扮演**第三方素材托管方**，让测试页能把"自己托管的 url"这条路走通：
  *   POST /__upload?name=<原文件名>   请求体 = 文件原始字节 → { ok, url, bytes }
  *   GET  /__uploads/<文件名>         把刚上传的文件原样送回去（带 CORS）
- * 上传落在系统临时目录（`<tmp>/dsh-pet-tester-uploads`），**不污染仓库**。
+ * 上传落在系统临时目录（`<tmp>/desk-pet-tester-uploads`），**不污染仓库**。
  *
  * 注意 /__uploads 的响应**必须带 CORS**：测试页在 8741、桌宠服务在另一个端口，素材
  * 走的是 `fetch`，跨源就会被拦。这正是"外站 url 要对方自己配 CORS"那条规则的真实演示——
@@ -41,9 +41,9 @@ const ROOT_DIR = path.resolve(argOf('--dir', __dirname));
 const PAGE = argOf('--page', 'api-tester.html');
 const NO_OPEN = argv.includes('--no-open');
 
-/** desk-pet 登记的实际端口（~/.desk-pet/server.json；DESK_PET_HOME / DSH_HOME 可改数据目录） */
+/** desk-pet 登记的实际端口（~/.desk-pet/server.json；DESK_PET_HOME 可改数据目录） */
 function registeredPort() {
-  const home = process.env.DSH_HOME || process.env.DESK_PET_HOME || path.join(os.homedir(), '.desk-pet');
+  const home = process.env.DESK_PET_HOME || path.join(os.homedir(), '.desk-pet');
   try {
     const port = Number(JSON.parse(fs.readFileSync(path.join(home, 'server.json'), 'utf8')).port);
     return Number.isInteger(port) && port > 0 ? String(port) : '3080';
@@ -55,8 +55,8 @@ function registeredPort() {
 /** 转发目标端口：测试页上的输入框可以改它（经 /__target），所以是可变状态 */
 let hostPort = Number(argOf('--port', registeredPort()));
 
-/** 路由前缀：与 src/host/index.ts 的 ROUTE_PREFIX 一致（7340 是名字，不是端口） */
-const PREFIX = '/dsh-pet-7340';
+/** 路由前缀：与 src/host/index.ts 的 ROUTE_PREFIX 一致 */
+const PREFIX = '/desk-pet';
 
 /** 这一跳要补的 CORS 头。注意：**只给本机测试代理补**，不改宿主行为。 */
 const CORS = {
@@ -70,7 +70,7 @@ const CORS = {
 const isApi = (url) => url === PREFIX || url.startsWith(PREFIX + '/') || url.startsWith(PREFIX + '?');
 
 /** 上传落盘目录：系统临时目录，**不污染仓库**（测试页在这里扮演"第三方托管素材"） */
-const UPLOAD_DIR = path.join(os.tmpdir(), 'dsh-pet-tester-uploads');
+const UPLOAD_DIR = path.join(os.tmpdir(), 'desk-pet-tester-uploads');
 /** 单个上传上限：防手滑传个几 GB 把临时盘塞满 */
 const UPLOAD_MAX = 512 * 1024 * 1024;
 /** 上传/回读用的 MIME（`<video>` / `<img>` 靠它解码；认不出的按二进制流送） */
@@ -121,7 +121,7 @@ function forward(req, res) {
 }
 
 /**
- * 代理自己的小端点（**不是** dsh-pet 接口，所以放在前缀之外）：
+ * 代理自己的小端点（**不是** desk-pet 接口，所以放在前缀之外）：
  *   GET  /__target        → { port }        页面启动时问"现在转发到哪个端口"
  *   POST /__target?port=N → { port }        页面改了端口输入框，切换转发目标
  * 这样测试页不用重新启动代理就能换端口试。
@@ -241,7 +241,7 @@ const server = http.createServer((req, res) => {
     return res.end();
   }
   if (url.pathname === '/__target') return handleTarget(req, res, url);
-  // 代理自己扮演"第三方素材托管方"：上传 + 回读（都在前缀之外，不会被当成 dsh-pet 接口转发）
+  // 代理自己扮演"第三方素材托管方"：上传 + 回读（都在前缀之外，不会被当成 desk-pet 接口转发）
   if (url.pathname === '/__upload') return handleUpload(req, res, url);
   if (url.pathname.startsWith('/__uploads/')) {
     return serveUpload(req, res, url.pathname.slice('/__uploads/'.length));

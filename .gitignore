@@ -32,11 +32,11 @@ npm-debug.log*
 # ── 临时/备份目录 ──
 temp/
 
-# ── 构建产物（全部由 src/ 构建生成，不入仓库；clone 后先 cd dsh-pet && npm run build）──
+# ── 构建产物（全部由 src/ 构建生成，不入仓库；clone 后先 cd desk-pet && npm run build）──
 #   lib/standalone.js         tsdown bundle（desk-pet 进程）
 #   runtime/electron-helper/shared-core.js  桌面共享纯逻辑（scripts/build-desktop-core.mjs 产出，window.PetShared）
-dsh-pet/lib/
-dsh-pet/runtime/electron-helper/shared-core.js
+desk-pet/lib/
+desk-pet/runtime/electron-helper/shared-core.js
 
 # ── IDE / 编辑器 ──
 .idea/

@@ -7,11 +7,11 @@
 平时它待机呼吸、随机做动作（打瞌睡、玩魔方、吃火锅……一百余个手绘风透明动画无缝衔接）、在屏幕上溜达、被点会 Q 弹、能拖拽甩抛反弹；闲下来会碎碎念，右键还能和它聊天——碎碎念和对话直接用 **Claude Code 本身**（`claude -p`）生成，用的是你在 Claude Code 里的登录，不需要另配 API key。
 
 <p align="center">
-  <img src="dsh-pet/assets/preview/gongzuozhuangtai-sikao-maopao.gif" width="160" alt="思考" title="思考（UserPromptSubmit）">
-  <img src="dsh-pet/assets/preview/gongzuozhuangtai-manglu-dianan.gif" width="160" alt="工作" title="工作（PreToolUse）">
-  <img src="dsh-pet/assets/preview/gongzuozhuangtai-yuandi-duobu-zhangwang.gif" width="160" alt="等待确认" title="等待确认（权限申请）">
-  <img src="dsh-pet/assets/preview/gongzuozhuangtai-queyue-qingzhu.gif" width="160" alt="完成" title="完成（Stop）">
-  <img src="dsh-pet/assets/preview/gongzuozhuangtai-chuitou-tanqi-maohan.gif" width="160" alt="出错" title="出错（StopFailure）">
+  <img src="desk-pet/assets/preview/gongzuozhuangtai-sikao-maopao.gif" width="160" alt="思考" title="思考（UserPromptSubmit）">
+  <img src="desk-pet/assets/preview/gongzuozhuangtai-manglu-dianan.gif" width="160" alt="工作" title="工作（PreToolUse）">
+  <img src="desk-pet/assets/preview/gongzuozhuangtai-yuandi-duobu-zhangwang.gif" width="160" alt="等待确认" title="等待确认（权限申请）">
+  <img src="desk-pet/assets/preview/gongzuozhuangtai-queyue-qingzhu.gif" width="160" alt="完成" title="完成（Stop）">
+  <img src="desk-pet/assets/preview/gongzuozhuangtai-chuitou-tanqi-maohan.gif" width="160" alt="出错" title="出错（StopFailure）">
 </p>
 
 ---
@@ -24,14 +24,14 @@
 
 ```sh
 git clone https://github.com/tg111/dsh-pet.git
-cd dsh-pet/dsh-pet
+cd dsh-pet/desk-pet
 pnpm install
 npm run build        # 产出 lib/（构建产物不入库，clone 后必须跑一次）
 npm link             # 把 desk-pet 命令装到 PATH 上（Windows 下同样可用）
 desk-pet --check     # 体检：配置、Electron、图形环境
 ```
 
-> 第一次启动会自动下载 Electron（约 100MB，落在 `~/.desk-pet/electron`，同一版本只下一次；默认走 npmmirror 镜像，网络受限时可设 `DSH_PET_ELECTRON_MIRROR` 换镜像）。
+> 第一次启动会自动下载 Electron（约 100MB，落在 `~/.desk-pet/electron`，同一版本只下一次；默认走 npmmirror 镜像，网络受限时可设 `DESK_PET_ELECTRON_MIRROR` 换镜像）。
 
 ### ② 在 Claude Code 里装插件（hook 转发 + 自动启动）
 
@@ -65,7 +65,7 @@ desk-pet --check     # 体检：配置、Electron、图形环境
 }
 ```
 
-这种方式下转发脚本会优先用同仓库里构建好的 `dsh-pet/lib/standalone.js` 启动桌宠，连 `npm link` 都可以省掉。
+这种方式下转发脚本会优先用同仓库里构建好的 `desk-pet/lib/standalone.js` 启动桌宠，连 `npm link` 都可以省掉。
 
 ### 退出 / 停用
 
@@ -109,19 +109,19 @@ Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code
 
 1. 看日志：`~/.desk-pet/desk-pet.log`（由 hook 自动启动时的输出）
 2. 在终端里前台跑一次：`desk-pet`，看横幅里的「桌面小窗」是否为 1 只、有没有报错；`desk-pet --check` 体检
-3. 提示找不到 `desk-pet` 命令：回到「快速开始 ①」执行 `npm link`，或设 `DESK_PET_CMD="node /path/to/dsh-pet/dsh-pet/lib/standalone.js"`
-4. 排查 hook 有没有到：`DSH_PET_STANDALONE_DEBUG=1 desk-pet` 前台运行，每条 hook 都会打一行 `hook PreToolUse → tool/call`
-5. Linux 无图形环境（SSH / 容器）会自动跳过桌面窗口；远程桌面 / Xvfb 可设 `DSH_PET_DESKTOP_FORCE=1`
+3. 提示找不到 `desk-pet` 命令：回到「快速开始 ①」执行 `npm link`，或设 `DESK_PET_CMD="node /path/to/dsh-pet/desk-pet/lib/standalone.js"`
+4. 排查 hook 有没有到：`DESK_PET_DEBUG=1 desk-pet` 前台运行，每条 hook 都会打一行 `hook PreToolUse → tool/call`
+5. Linux 无图形环境（SSH / 容器）会自动跳过桌面窗口；远程桌面 / Xvfb 可设 `DESK_PET_DESKTOP_FORCE=1`
 
 ## 功能一览
 
 - **跟着 Claude Code 干活**：思考 / 工作 / 整理 / 等待 / 成功 / 出错六档动画 + 头顶气泡；多个会话同时跑时按优先级展示（等你确认 > 出错 > 工作 > 思考 > 整理 > 成功），子代理的工具调用也算在父会话的「工作」里
-- **碎碎念与对话**：走 `claude -p`，人设见配置里的 `whisperPrompt`；右键「对话」与它聊天，记忆持久化在 `~/.desk-pet/dsh-pet/memory.json`；还会从表情包池里挑一张配图
+- **碎碎念与对话**：走 `claude -p`，人设见配置里的 `whisperPrompt`；右键「对话」与它聊天，记忆持久化在 `~/.desk-pet/memory.json`；还会从表情包池里挑一张配图
 - **动画链**：每个动画（含待机）播完即按权重选下一个，首尾相接；双缓冲交叉淡入，切换无空白帧
 - **屏幕漫游 / 点击 / 拖拽 / 甩抛**：朝朝向方向行走、不走出屏幕；拖拽阻尼弹簧跟手，甩出抛物线飞行、屏幕边缘反弹、落地 Q 弹
 - **右键菜单**：打开 Claude Code、碎碎念、对话、回到初始位置、隐藏（托盘可恢复）、重载配置，以及「动作 → 分类 → 具体动画」任意点播
 - **多开**：同时显示多只宠物，各自独立大小与位置；还能用 pet pack 添加**全新种类**（见下文「配置 → 方式四」）
-- **自定义动画**：往 `~/.desk-pet/dsh-pet/main-animation/webm/` 放 VP9-Alpha 的 `.webm` 即为新动画，优先于包内素材
+- **自定义动画**：往 `~/.desk-pet/main-animation/webm/` 放 VP9-Alpha 的 `.webm` 即为新动画，优先于包内素材
 - **托盘**：开关每只宠物的桌面显示、退出桌宠
 - **无障碍**：支持 `prefers-reduced-motion`
 
@@ -133,7 +133,7 @@ Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code
 
 - **能做什么**：让它说一句指定的话、播一段指定动画、与它对话、把它挪到某个位置或抛出去；读它当前说的话与工作状态
 - **为什么开放**：桌宠不该只是个摆设——比如一个「女仆」插件巡检验完想说句话，就能让桌宠当它的「实体」开口；也方便任何人基于它做二次开发
-- **怎么调**：基址 `http://127.0.0.1:<端口>/dsh-pet-7340`（端口见 `~/.desk-pet/server.json`，默认 3080；只监听本机、无鉴权）。动作类接口只回 `{ok}`，数据统一从 `GET /state` 读。在 Claude Code 里，你甚至可以让 Claude 自己 `curl` 一下，让桌宠替它说句话
+- **怎么调**：基址 `http://127.0.0.1:<端口>/desk-pet`（端口见 `~/.desk-pet/server.json`，默认 3080；只监听本机、无鉴权）。动作类接口只回 `{ok}`，数据统一从 `GET /state` 读。在 Claude Code 里，你甚至可以让 Claude 自己 `curl` 一下，让桌宠替它说句话
 
 三个相关文件：
 
@@ -155,7 +155,7 @@ Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code
 - **模型后端**：Claude Code 模式下走 `claude -p`——用的是你在 Claude Code 里的登录（订阅 / API key / Bedrock / Vertex 都行），不用另配 key；默认 `haiku`，环境变量 `DESK_PET_MODEL=sonnet` 可换。调用时关闭全部工具、MCP 与 hook，也不写进 `/resume` 会话列表；**会计入你的 Claude 用量**
 - **碎碎念**：`pets[i].whisperEnabled` 开启后，按 `eventsRefreshSec.whisper`（秒，默认 900）周期自动生成一句——每只宠物独立周期、独立文案；触发时随机抽 `events.whisper` 动画 + 头顶说话气泡（10 秒消失）。默认开启
 - **手动触发**：右键菜单「碎碎念」随时来一句——不受 `whisperEnabled` 门控（该字段只关自动周期轮询）
-- **对话**：右键菜单「对话」打开输入框，与宠物聊天——回复走碎碎念同款展示（说话动画 + 气泡）；记忆持久化在 `~/.desk-pet/dsh-pet/memory.json`（每只宠物各一份）
+- **对话**：右键菜单「对话」打开输入框，与宠物聊天——回复走碎碎念同款展示（说话动画 + 气泡）；记忆持久化在 `~/.desk-pet/memory.json`（每只宠物各一份）
 
 ## ⚙️ 工作状态联动（Work Status）
 
@@ -169,7 +169,7 @@ Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code
 
 所有配置都是 JSONC 文件，**改完右键宠物「重载配置」即生效**（或重启 `desk-pet`）。配置有错时不会静默：错误写在 `~/.desk-pet/desk-pet.log` / 前台终端里，桌面上会出现红色错误条并每 5 秒重试。
 
-### 包内默认：`dsh-pet/assets/config.jsonc`
+### 包内默认：`desk-pet/assets/config.jsonc`
 
 完整的结构参考（注释齐全）：宠物列表、动画池、播放权重、事件动画、刷新周期、物理参数、人设提示词……不要直接改它，把想改的字段抄进下面的用户配置即可。
 
@@ -183,7 +183,7 @@ Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code
 - 每只宠物：`id`（唯一标识）／ `name`（显示名，也会进人设）／ `size`（宽度 px，高度 = 宽 × 9/16）／ `whisperEnabled`（自动碎碎念）／ `workStatusEnabled`（跟随 Claude Code 切换工作状态）／ `display`（`desktop` = 显示、`none` = 隐藏；托盘里也能切）／ `position`（`corner` 四角之一 + `marginX` / `marginY` 边距）
 - 多只宠物 = `pets` 里写多项，每只独立大小与位置
 
-### 用户配置：`~/.desk-pet/dsh-pet/main-config.jsonc`
+### 用户配置：`~/.desk-pet/main-config.jsonc`
 
 **与包内默认同一套格式**，只写你想改的顶层字段；没写的回落默认。第一次可以直接把包内 `config.jsonc` 整份复制过来再改：
 
@@ -209,7 +209,7 @@ Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code
 上面只能调整**默认宠物的实例**（数量/大小/位置），动画池始终是一份。要添加**全新种类的宠物**（独立动画池 + 自己的素材），在用户数据根下建 `pet/` 目录：
 
 ```
-~/.desk-pet/dsh-pet/
+~/.desk-pet/
 ├─ main-config.jsonc           ← 主宠物配置（现有，不动）
 ├─ main-animation/webm/*.webm  ← 主宠物素材（现有，只属于 main）
 └─ pet/
@@ -251,161 +251,161 @@ Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code
 - 配置非法 / 缺少 `-animation/` 目录 / 实例 id 与主宠物冲突 → 加载时显式报错并跳过（不影响其他宠物）
 ## 效果预览
 
-全部动画（640×360，插件实际播放用的资源）——GIF 预览存放于仓库 `dsh-pet/assets/preview/`（raw 直链渲染，文件名采用拼音便于跨平台）；完整透明视频见插件包 `dsh-pet/assets/webm/`（VP9-alpha，唯一发布格式）：
+全部动画（640×360，插件实际播放用的资源）——GIF 预览存放于仓库 `desk-pet/assets/preview/`（raw 直链渲染，文件名采用拼音便于跨平台）；完整透明视频见插件包 `desk-pet/assets/webm/`（VP9-alpha，唯一发布格式）：
 
 **待机 / 转向**
 
 <p>
-  <img src="dsh-pet/assets/preview/daiji-huxi-xiuxian.gif" width="160" alt="待机呼吸休闲" title="待机呼吸休闲">
-  <img src="dsh-pet/assets/preview/dongzhangxiwang.gif" width="160" alt="东张西望" title="东张西望">
+  <img src="desk-pet/assets/preview/daiji-huxi-xiuxian.gif" width="160" alt="待机呼吸休闲" title="待机呼吸休闲">
+  <img src="desk-pet/assets/preview/dongzhangxiwang.gif" width="160" alt="东张西望" title="东张西望">
 </p>
 
 **移动**
 
 <p>
-  <img src="dsh-pet/assets/preview/pangxie-zoulu.gif" width="160" alt="螃蟹走路" title="螃蟹走路">
-  <img src="dsh-pet/assets/preview/yuandi-piaofu-tabu.gif" width="160" alt="原地漂浮踏步" title="原地漂浮踏步">
-  <img src="dsh-pet/assets/preview/yuandi-zuozhuan-benpao.gif" width="160" alt="原地左转奔跑" title="原地左转奔跑">
+  <img src="desk-pet/assets/preview/pangxie-zoulu.gif" width="160" alt="螃蟹走路" title="螃蟹走路">
+  <img src="desk-pet/assets/preview/yuandi-piaofu-tabu.gif" width="160" alt="原地漂浮踏步" title="原地漂浮踏步">
+  <img src="desk-pet/assets/preview/yuandi-zuozhuan-benpao.gif" width="160" alt="原地左转奔跑" title="原地左转奔跑">
 </p>
 
 **小动作**
 
 <p>
-  <img src="dsh-pet/assets/preview/youxian-hengga.gif" width="160" alt="悠闲哼歌" title="悠闲哼歌">
-  <img src="dsh-pet/assets/preview/chaoda-shenlanyao.gif" width="160" alt="超大伸懒腰" title="超大伸懒腰">
-  <img src="dsh-pet/assets/preview/yuandi-qiaoji-zhuomian-hudong.gif" width="160" alt="原地敲击桌面互动" title="原地敲击桌面互动">
-  <img src="dsh-pet/assets/preview/yuandi-zhongli-xiadun-yasuo.gif" width="160" alt="原地重力下蹲压缩" title="原地重力下蹲压缩">
-  <img src="dsh-pet/assets/preview/haqian-liantian.gif" width="160" alt="哈欠连天" title="哈欠连天">
-  <img src="dsh-pet/assets/preview/yuandi-xiaoqi-chenmian.gif" width="160" alt="原地小憩沉眠" title="原地小憩沉眠">
-  <img src="dsh-pet/assets/preview/nvpu-quxi-liyi.gif" width="160" alt="女仆屈膝礼仪" title="女仆屈膝礼仪">
-  <img src="dsh-pet/assets/preview/beixiayitiao-zhamao.gif" width="160" alt="被吓一跳" title="被吓一跳">
-  <img src="dsh-pet/assets/preview/xiaofudu-yuandi-360du-xuanzhuan-zhanshi.gif" width="160" alt="小幅度原地360度旋转展示" title="小幅度原地360度旋转展示">
-  <img src="dsh-pet/assets/preview/touchi-lingshi-bei-zhuazhu.gif" width="160" alt="偷吃零食被抓住" title="偷吃零食被抓住">
-  <img src="dsh-pet/assets/preview/yong-jingyu-weiba-paidadi.gif" width="160" alt="用鲸鱼尾巴拍打地面" title="用鲸鱼尾巴拍打地面">
-  <img src="dsh-pet/assets/preview/da-keshui-bei-jingxing.gif" width="160" alt="打瞌睡被惊醒" title="打瞌睡被惊醒">
-  <img src="dsh-pet/assets/preview/zhao-jingzi.gif" width="160" alt="照镜子" title="照镜子">
-  <img src="dsh-pet/assets/preview/zhengti-huanzhuang-shise.gif" width="160" alt="整体换装试色" title="整体换装试色">
-  <img src="dsh-pet/assets/preview/qingkuai-jilu.gif" width="160" alt="轻快记录" title="轻快记录">
-  <img src="dsh-pet/assets/preview/xie-daima.gif" width="160" alt="写代码" title="写代码">
-  <img src="dsh-pet/assets/preview/yaoshan-naliang.gif" width="160" alt="摇扇纳凉" title="摇扇纳凉">
-  <img src="dsh-pet/assets/preview/chenjian-shuaya.gif" width="160" alt="晨间刷牙" title="晨间刷牙">
+  <img src="desk-pet/assets/preview/youxian-hengga.gif" width="160" alt="悠闲哼歌" title="悠闲哼歌">
+  <img src="desk-pet/assets/preview/chaoda-shenlanyao.gif" width="160" alt="超大伸懒腰" title="超大伸懒腰">
+  <img src="desk-pet/assets/preview/yuandi-qiaoji-zhuomian-hudong.gif" width="160" alt="原地敲击桌面互动" title="原地敲击桌面互动">
+  <img src="desk-pet/assets/preview/yuandi-zhongli-xiadun-yasuo.gif" width="160" alt="原地重力下蹲压缩" title="原地重力下蹲压缩">
+  <img src="desk-pet/assets/preview/haqian-liantian.gif" width="160" alt="哈欠连天" title="哈欠连天">
+  <img src="desk-pet/assets/preview/yuandi-xiaoqi-chenmian.gif" width="160" alt="原地小憩沉眠" title="原地小憩沉眠">
+  <img src="desk-pet/assets/preview/nvpu-quxi-liyi.gif" width="160" alt="女仆屈膝礼仪" title="女仆屈膝礼仪">
+  <img src="desk-pet/assets/preview/beixiayitiao-zhamao.gif" width="160" alt="被吓一跳" title="被吓一跳">
+  <img src="desk-pet/assets/preview/xiaofudu-yuandi-360du-xuanzhuan-zhanshi.gif" width="160" alt="小幅度原地360度旋转展示" title="小幅度原地360度旋转展示">
+  <img src="desk-pet/assets/preview/touchi-lingshi-bei-zhuazhu.gif" width="160" alt="偷吃零食被抓住" title="偷吃零食被抓住">
+  <img src="desk-pet/assets/preview/yong-jingyu-weiba-paidadi.gif" width="160" alt="用鲸鱼尾巴拍打地面" title="用鲸鱼尾巴拍打地面">
+  <img src="desk-pet/assets/preview/da-keshui-bei-jingxing.gif" width="160" alt="打瞌睡被惊醒" title="打瞌睡被惊醒">
+  <img src="desk-pet/assets/preview/zhao-jingzi.gif" width="160" alt="照镜子" title="照镜子">
+  <img src="desk-pet/assets/preview/zhengti-huanzhuang-shise.gif" width="160" alt="整体换装试色" title="整体换装试色">
+  <img src="desk-pet/assets/preview/qingkuai-jilu.gif" width="160" alt="轻快记录" title="轻快记录">
+  <img src="desk-pet/assets/preview/xie-daima.gif" width="160" alt="写代码" title="写代码">
+  <img src="desk-pet/assets/preview/yaoshan-naliang.gif" width="160" alt="摇扇纳凉" title="摇扇纳凉">
+  <img src="desk-pet/assets/preview/chenjian-shuaya.gif" width="160" alt="晨间刷牙" title="晨间刷牙">
 </p>
 
 **玩耍**
 
 <p>
-  <img src="dsh-pet/assets/preview/yuandi-zhuanxin-wan-mofang.gif" width="160" alt="原地专心玩魔方" title="原地专心玩魔方">
-  <img src="dsh-pet/assets/preview/yuandi-dunxia-wan-wanju-qiche.gif" width="160" alt="原地蹲下玩玩具汽车" title="原地蹲下玩玩具汽车">
-  <img src="dsh-pet/assets/preview/jingyu-tu-paopao-texiao.gif" width="160" alt="鲸鱼吐泡泡特效" title="鲸鱼吐泡泡特效">
-  <img src="dsh-pet/assets/preview/yuandi-tiaoyue-zhuasui-touding-wupin.gif" width="160" alt="原地跳跃抓碎头顶物品" title="原地跳跃抓碎头顶物品">
-  <img src="dsh-pet/assets/preview/wan-youxi-qijibaituai.gif" width="160" alt="玩游戏气急败坏" title="玩游戏气急败坏">
-  <img src="dsh-pet/assets/preview/wan-shuiqiang.gif" width="160" alt="玩水枪" title="玩水枪">
-  <img src="dsh-pet/assets/preview/xiaotiqin-yanzou.gif" width="160" alt="小提琴演奏" title="小提琴演奏">
-  <img src="dsh-pet/assets/preview/lanjing-xianshi.gif" width="160" alt="蓝鲸现世" title="蓝鲸现世">
-  <img src="dsh-pet/assets/preview/youya-nvpuwu.gif" width="160" alt="优雅女仆舞" title="优雅女仆舞">
-  <img src="dsh-pet/assets/preview/qingkuai-yaobaiwu.gif" width="160" alt="轻快摇摆舞" title="轻快摇摆舞">
-  <img src="dsh-pet/assets/preview/keai-zhaiwu.gif" width="160" alt="可爱宅舞" title="可爱宅舞">
-  <img src="dsh-pet/assets/preview/chui-qiqiu.gif" width="160" alt="吹气球" title="吹气球">
-  <img src="dsh-pet/assets/preview/dongwu-huanrao.gif" width="160" alt="动物环绕" title="动物环绕">
-  <img src="dsh-pet/assets/preview/fang-fengzheng.gif" width="160" alt="放风筝" title="放风筝">
-  <img src="dsh-pet/assets/preview/chai-liwu.gif" width="160" alt="拆礼物" title="拆礼物">
-  <img src="dsh-pet/assets/preview/bian-gezi.gif" width="160" alt="变鸽子" title="变鸽子">
-  <img src="dsh-pet/assets/preview/puke-moshu.gif" width="160" alt="扑克魔术" title="扑克魔术">
-  <img src="dsh-pet/assets/preview/chou-tuoluo.gif" width="160" alt="抽陀螺" title="抽陀螺">
-  <img src="dsh-pet/assets/preview/chui-dizi.gif" width="160" alt="吹笛子" title="吹笛子">
-  <img src="dsh-pet/assets/preview/hudie-mifeng-huanrao-touding-kaihua.gif" width="160" alt="蝴蝶蜜蜂环绕头顶开花" title="蝴蝶蜜蜂环绕头顶开花">
-  <img src="dsh-pet/assets/preview/lu-mao.gif" width="160" alt="撸猫" title="撸猫">
-  <img src="dsh-pet/assets/preview/pingkong-shenghua.gif" width="160" alt="凭空生花" title="凭空生花">
-  <img src="dsh-pet/assets/preview/qi-muma.gif" width="160" alt="骑木马" title="骑木马">
-  <img src="dsh-pet/assets/preview/sanqiu-paojie.gif" width="160" alt="三球抛接" title="三球抛接">
-  <img src="dsh-pet/assets/preview/ti-jianzi.gif" width="160" alt="踢毽子" title="踢毽子">
-  <img src="dsh-pet/assets/preview/xiawuziqi.gif" width="160" alt="下五子棋" title="下五子棋">
-  <img src="dsh-pet/assets/preview/dangqiuqian.gif" width="160" alt="荡秋千" title="荡秋千">
+  <img src="desk-pet/assets/preview/yuandi-zhuanxin-wan-mofang.gif" width="160" alt="原地专心玩魔方" title="原地专心玩魔方">
+  <img src="desk-pet/assets/preview/yuandi-dunxia-wan-wanju-qiche.gif" width="160" alt="原地蹲下玩玩具汽车" title="原地蹲下玩玩具汽车">
+  <img src="desk-pet/assets/preview/jingyu-tu-paopao-texiao.gif" width="160" alt="鲸鱼吐泡泡特效" title="鲸鱼吐泡泡特效">
+  <img src="desk-pet/assets/preview/yuandi-tiaoyue-zhuasui-touding-wupin.gif" width="160" alt="原地跳跃抓碎头顶物品" title="原地跳跃抓碎头顶物品">
+  <img src="desk-pet/assets/preview/wan-youxi-qijibaituai.gif" width="160" alt="玩游戏气急败坏" title="玩游戏气急败坏">
+  <img src="desk-pet/assets/preview/wan-shuiqiang.gif" width="160" alt="玩水枪" title="玩水枪">
+  <img src="desk-pet/assets/preview/xiaotiqin-yanzou.gif" width="160" alt="小提琴演奏" title="小提琴演奏">
+  <img src="desk-pet/assets/preview/lanjing-xianshi.gif" width="160" alt="蓝鲸现世" title="蓝鲸现世">
+  <img src="desk-pet/assets/preview/youya-nvpuwu.gif" width="160" alt="优雅女仆舞" title="优雅女仆舞">
+  <img src="desk-pet/assets/preview/qingkuai-yaobaiwu.gif" width="160" alt="轻快摇摆舞" title="轻快摇摆舞">
+  <img src="desk-pet/assets/preview/keai-zhaiwu.gif" width="160" alt="可爱宅舞" title="可爱宅舞">
+  <img src="desk-pet/assets/preview/chui-qiqiu.gif" width="160" alt="吹气球" title="吹气球">
+  <img src="desk-pet/assets/preview/dongwu-huanrao.gif" width="160" alt="动物环绕" title="动物环绕">
+  <img src="desk-pet/assets/preview/fang-fengzheng.gif" width="160" alt="放风筝" title="放风筝">
+  <img src="desk-pet/assets/preview/chai-liwu.gif" width="160" alt="拆礼物" title="拆礼物">
+  <img src="desk-pet/assets/preview/bian-gezi.gif" width="160" alt="变鸽子" title="变鸽子">
+  <img src="desk-pet/assets/preview/puke-moshu.gif" width="160" alt="扑克魔术" title="扑克魔术">
+  <img src="desk-pet/assets/preview/chou-tuoluo.gif" width="160" alt="抽陀螺" title="抽陀螺">
+  <img src="desk-pet/assets/preview/chui-dizi.gif" width="160" alt="吹笛子" title="吹笛子">
+  <img src="desk-pet/assets/preview/hudie-mifeng-huanrao-touding-kaihua.gif" width="160" alt="蝴蝶蜜蜂环绕头顶开花" title="蝴蝶蜜蜂环绕头顶开花">
+  <img src="desk-pet/assets/preview/lu-mao.gif" width="160" alt="撸猫" title="撸猫">
+  <img src="desk-pet/assets/preview/pingkong-shenghua.gif" width="160" alt="凭空生花" title="凭空生花">
+  <img src="desk-pet/assets/preview/qi-muma.gif" width="160" alt="骑木马" title="骑木马">
+  <img src="desk-pet/assets/preview/sanqiu-paojie.gif" width="160" alt="三球抛接" title="三球抛接">
+  <img src="desk-pet/assets/preview/ti-jianzi.gif" width="160" alt="踢毽子" title="踢毽子">
+  <img src="desk-pet/assets/preview/xiawuziqi.gif" width="160" alt="下五子棋" title="下五子棋">
+  <img src="desk-pet/assets/preview/dangqiuqian.gif" width="160" alt="荡秋千" title="荡秋千">
 </p>
 
 **吃什么**
 
 <p>
-  <img src="dsh-pet/assets/preview/chi-baifan.gif" width="160" alt="吃白饭" title="吃白饭">
-  <img src="dsh-pet/assets/preview/dakou-chi-lingshi.gif" width="160" alt="大口吃零食" title="大口吃零食">
-  <img src="dsh-pet/assets/preview/chi-token.gif" width="160" alt="吃Token" title="吃Token">
-  <img src="dsh-pet/assets/preview/chi-zaocan.gif" width="160" alt="吃早餐" title="吃早餐">
-  <img src="dsh-pet/assets/preview/chi-wucan.gif" width="160" alt="吃午餐" title="吃午餐">
-  <img src="dsh-pet/assets/preview/chi-wancan.gif" width="160" alt="吃晚餐" title="吃晚餐">
-  <img src="dsh-pet/assets/preview/chi-bingqilin-ronghua.gif" width="160" alt="吃冰淇淋融化" title="吃冰淇淋融化">
-  <img src="dsh-pet/assets/preview/chi-dazhaxie.gif" width="160" alt="吃大闸蟹" title="吃大闸蟹">
-  <img src="dsh-pet/assets/preview/chi-tanghulu.gif" width="160" alt="吃糖葫芦" title="吃糖葫芦">
-  <img src="dsh-pet/assets/preview/chi-changshoumian.gif" width="160" alt="吃长寿面" title="吃长寿面">
-  <img src="dsh-pet/assets/preview/chi-xigua.gif" width="160" alt="吃西瓜" title="吃西瓜">
-  <img src="dsh-pet/assets/preview/shuan-huoguo.gif" width="160" alt="涮火锅" title="涮火锅">
+  <img src="desk-pet/assets/preview/chi-baifan.gif" width="160" alt="吃白饭" title="吃白饭">
+  <img src="desk-pet/assets/preview/dakou-chi-lingshi.gif" width="160" alt="大口吃零食" title="大口吃零食">
+  <img src="desk-pet/assets/preview/chi-token.gif" width="160" alt="吃Token" title="吃Token">
+  <img src="desk-pet/assets/preview/chi-zaocan.gif" width="160" alt="吃早餐" title="吃早餐">
+  <img src="desk-pet/assets/preview/chi-wucan.gif" width="160" alt="吃午餐" title="吃午餐">
+  <img src="desk-pet/assets/preview/chi-wancan.gif" width="160" alt="吃晚餐" title="吃晚餐">
+  <img src="desk-pet/assets/preview/chi-bingqilin-ronghua.gif" width="160" alt="吃冰淇淋融化" title="吃冰淇淋融化">
+  <img src="desk-pet/assets/preview/chi-dazhaxie.gif" width="160" alt="吃大闸蟹" title="吃大闸蟹">
+  <img src="desk-pet/assets/preview/chi-tanghulu.gif" width="160" alt="吃糖葫芦" title="吃糖葫芦">
+  <img src="desk-pet/assets/preview/chi-changshoumian.gif" width="160" alt="吃长寿面" title="吃长寿面">
+  <img src="desk-pet/assets/preview/chi-xigua.gif" width="160" alt="吃西瓜" title="吃西瓜">
+  <img src="desk-pet/assets/preview/shuan-huoguo.gif" width="160" alt="涮火锅" title="涮火锅">
 </p>
 
 **时节**
 
 <p>
-  <img src="dsh-pet/assets/preview/beiluoye-yanmo.gif" width="160" alt="被落叶淹没" title="被落叶淹没">
-  <img src="dsh-pet/assets/preview/zhongqiu-shangyue-chi-yuebing.gif" width="160" alt="中秋赏月吃月饼" title="中秋赏月吃月饼">
-  <img src="dsh-pet/assets/preview/duixueren.gif" width="160" alt="堆雪人" title="堆雪人">
-  <img src="dsh-pet/assets/preview/fang-yanhua.gif" width="160" alt="放烟花" title="放烟花">
-  <img src="dsh-pet/assets/preview/chi-zongzi.gif" width="160" alt="吃粽子" title="吃粽子">
-  <img src="dsh-pet/assets/preview/chi-niangao.gif" width="160" alt="吃年糕" title="吃年糕">
-  <img src="dsh-pet/assets/preview/chi-qingtuan.gif" width="160" alt="吃青团" title="吃青团">
-  <img src="dsh-pet/assets/preview/chi-labazhou.gif" width="160" alt="吃腊八粥" title="吃腊八粥">
-  <img src="dsh-pet/assets/preview/chi-chongyanggao.gif" width="160" alt="吃重阳糕" title="吃重阳糕">
-  <img src="dsh-pet/assets/preview/shou-hongbao.gif" width="160" alt="收红包" title="收红包">
-  <img src="dsh-pet/assets/preview/xie-fuzi.gif" width="160" alt="写福字" title="写福字">
-  <img src="dsh-pet/assets/preview/chuanzhenqiqiao.gif" width="160" alt="穿针乞巧" title="穿针乞巧">
-  <img src="dsh-pet/assets/preview/wu-shitou.gif" width="160" alt="舞狮头" title="舞狮头">
-  <img src="dsh-pet/assets/preview/taotang-nanguadeng.gif" width="160" alt="讨糖南瓜灯" title="讨糖南瓜灯">
-  <img src="dsh-pet/assets/preview/cha-zhuyu-shangju.gif" width="160" alt="插茱萸赏菊" title="插茱萸赏菊">
-  <img src="dsh-pet/assets/preview/fanghedeng.gif" width="160" alt="放河灯" title="放河灯">
-  <img src="dsh-pet/assets/preview/menghua-xiaoyouling.gif" width="160" alt="萌化小幽灵" title="萌化小幽灵">
-  <img src="dsh-pet/assets/preview/zhuangdian-shengdanshu.gif" width="160" alt="装点圣诞树" title="装点圣诞树">
-  <img src="dsh-pet/assets/preview/fang-kongmingdeng.gif" width="160" alt="放孔明灯" title="放孔明灯">
-  <img src="dsh-pet/assets/preview/chitangyuan.gif" width="160" alt="吃汤圆" title="吃汤圆">
-  <img src="dsh-pet/assets/preview/chijiaozi.gif" width="160" alt="吃饺子" title="吃饺子">
+  <img src="desk-pet/assets/preview/beiluoye-yanmo.gif" width="160" alt="被落叶淹没" title="被落叶淹没">
+  <img src="desk-pet/assets/preview/zhongqiu-shangyue-chi-yuebing.gif" width="160" alt="中秋赏月吃月饼" title="中秋赏月吃月饼">
+  <img src="desk-pet/assets/preview/duixueren.gif" width="160" alt="堆雪人" title="堆雪人">
+  <img src="desk-pet/assets/preview/fang-yanhua.gif" width="160" alt="放烟花" title="放烟花">
+  <img src="desk-pet/assets/preview/chi-zongzi.gif" width="160" alt="吃粽子" title="吃粽子">
+  <img src="desk-pet/assets/preview/chi-niangao.gif" width="160" alt="吃年糕" title="吃年糕">
+  <img src="desk-pet/assets/preview/chi-qingtuan.gif" width="160" alt="吃青团" title="吃青团">
+  <img src="desk-pet/assets/preview/chi-labazhou.gif" width="160" alt="吃腊八粥" title="吃腊八粥">
+  <img src="desk-pet/assets/preview/chi-chongyanggao.gif" width="160" alt="吃重阳糕" title="吃重阳糕">
+  <img src="desk-pet/assets/preview/shou-hongbao.gif" width="160" alt="收红包" title="收红包">
+  <img src="desk-pet/assets/preview/xie-fuzi.gif" width="160" alt="写福字" title="写福字">
+  <img src="desk-pet/assets/preview/chuanzhenqiqiao.gif" width="160" alt="穿针乞巧" title="穿针乞巧">
+  <img src="desk-pet/assets/preview/wu-shitou.gif" width="160" alt="舞狮头" title="舞狮头">
+  <img src="desk-pet/assets/preview/taotang-nanguadeng.gif" width="160" alt="讨糖南瓜灯" title="讨糖南瓜灯">
+  <img src="desk-pet/assets/preview/cha-zhuyu-shangju.gif" width="160" alt="插茱萸赏菊" title="插茱萸赏菊">
+  <img src="desk-pet/assets/preview/fanghedeng.gif" width="160" alt="放河灯" title="放河灯">
+  <img src="desk-pet/assets/preview/menghua-xiaoyouling.gif" width="160" alt="萌化小幽灵" title="萌化小幽灵">
+  <img src="desk-pet/assets/preview/zhuangdian-shengdanshu.gif" width="160" alt="装点圣诞树" title="装点圣诞树">
+  <img src="desk-pet/assets/preview/fang-kongmingdeng.gif" width="160" alt="放孔明灯" title="放孔明灯">
+  <img src="desk-pet/assets/preview/chitangyuan.gif" width="160" alt="吃汤圆" title="吃汤圆">
+  <img src="desk-pet/assets/preview/chijiaozi.gif" width="160" alt="吃饺子" title="吃饺子">
 </p>
 
 **文字**
 
 <p>
-  <img src="dsh-pet/assets/preview/shia-chishenme.gif" width="160" alt="是啊，吃什么" title="是啊，吃什么">
-  <img src="dsh-pet/assets/preview/shendu-sikao-suisuinian.gif" width="160" alt="深度思考碎碎念" title="深度思考碎碎念">
+  <img src="desk-pet/assets/preview/shia-chishenme.gif" width="160" alt="是啊，吃什么" title="是啊，吃什么">
+  <img src="desk-pet/assets/preview/shendu-sikao-suisuinian.gif" width="160" alt="深度思考碎碎念" title="深度思考碎碎念">
 </p>
 
 **点击回应**
 
 <p>
-  <img src="dsh-pet/assets/preview/dianji-huiying-kaixin-yuedong.gif" width="160" alt="点击回应-开心跃动" title="点击回应-开心跃动">
-  <img src="dsh-pet/assets/preview/dianji-huiying-haixiu-jingya.gif" width="160" alt="点击回应-害羞惊讶" title="点击回应-害羞惊讶">
-  <img src="dsh-pet/assets/preview/dianji-huiying-aojiao-shengqi-ceshen-zhanshi.gif" width="160" alt="点击回应-傲娇生气" title="点击回应-傲娇生气">
-  <img src="dsh-pet/assets/preview/dianji-huiying-naoyang-gegexiao.gif" width="160" alt="点击回应-挠痒咯咯笑" title="点击回应-挠痒咯咯笑">
-  <img src="dsh-pet/assets/preview/dianji-huiying-yuanqi-huishou.gif" width="160" alt="点击回应-元气挥手" title="点击回应-元气挥手">
+  <img src="desk-pet/assets/preview/dianji-huiying-kaixin-yuedong.gif" width="160" alt="点击回应-开心跃动" title="点击回应-开心跃动">
+  <img src="desk-pet/assets/preview/dianji-huiying-haixiu-jingya.gif" width="160" alt="点击回应-害羞惊讶" title="点击回应-害羞惊讶">
+  <img src="desk-pet/assets/preview/dianji-huiying-aojiao-shengqi-ceshen-zhanshi.gif" width="160" alt="点击回应-傲娇生气" title="点击回应-傲娇生气">
+  <img src="desk-pet/assets/preview/dianji-huiying-naoyang-gegexiao.gif" width="160" alt="点击回应-挠痒咯咯笑" title="点击回应-挠痒咯咯笑">
+  <img src="desk-pet/assets/preview/dianji-huiying-yuanqi-huishou.gif" width="160" alt="点击回应-元气挥手" title="点击回应-元气挥手">
 </p>
 
 **拖拽**
 
 <p>
-  <img src="dsh-pet/assets/preview/beishubiao-tuozhuai-xuankong-fankui.gif" width="160" alt="被鼠标拖拽悬空反馈" title="被鼠标拖拽悬空反馈">
+  <img src="desk-pet/assets/preview/beishubiao-tuozhuai-xuankong-fankui.gif" width="160" alt="被鼠标拖拽悬空反馈" title="被鼠标拖拽悬空反馈">
 </p>
 
 **碎碎念说话动画**（碎碎念 / 对话回复触发，随机抽 1 段）
 
 <p>
-  <img src="dsh-pet/assets/preview/suisuinian-cazhuo-suisuinian.gif" width="160" alt="碎碎念-擦桌碎碎念" title="碎碎念-擦桌碎碎念">
-  <img src="dsh-pet/assets/preview/suisuinian-fadai-suisuinian.gif" width="160" alt="碎碎念-发呆碎碎念" title="碎碎念-发呆碎碎念">
-  <img src="dsh-pet/assets/preview/suisuinian-duiping-suisuinian.gif" width="160" alt="碎碎念-对屏碎碎念" title="碎碎念-对屏碎碎念">
+  <img src="desk-pet/assets/preview/suisuinian-cazhuo-suisuinian.gif" width="160" alt="碎碎念-擦桌碎碎念" title="碎碎念-擦桌碎碎念">
+  <img src="desk-pet/assets/preview/suisuinian-fadai-suisuinian.gif" width="160" alt="碎碎念-发呆碎碎念" title="碎碎念-发呆碎碎念">
+  <img src="desk-pet/assets/preview/suisuinian-duiping-suisuinian.gif" width="160" alt="碎碎念-对屏碎碎念" title="碎碎念-对屏碎碎念">
 </p>
 
 **工作状态动画**（跟随 Claude Code 的 hook 事件，六档：思考 / 工作 / 整理 / 等待 / 成功 / 出错）
 
 <p>
-  <img src="dsh-pet/assets/preview/gongzuozhuangtai-sikao-maopao.gif" width="160" alt="工作状态-思考冒泡" title="工作状态-思考冒泡">
-  <img src="dsh-pet/assets/preview/gongzuozhuangtai-manglu-dianan.gif" width="160" alt="工作状态-忙碌点按" title="工作状态-忙碌点按">
-  <img src="dsh-pet/assets/preview/gongzuozhuangtai-qingdian-guidang.gif" width="160" alt="工作状态-清点归档" title="工作状态-清点归档">
-  <img src="dsh-pet/assets/preview/gongzuozhuangtai-yuandi-duobu-zhangwang.gif" width="160" alt="工作状态-原地踱步张望" title="工作状态-原地踱步张望">
-  <img src="dsh-pet/assets/preview/gongzuozhuangtai-queyue-qingzhu.gif" width="160" alt="工作状态-雀跃庆祝" title="工作状态-雀跃庆祝">
-  <img src="dsh-pet/assets/preview/gongzuozhuangtai-chuitou-tanqi-maohan.gif" width="160" alt="工作状态-垂头叹气冒汗" title="工作状态-垂头叹气冒汗">
+  <img src="desk-pet/assets/preview/gongzuozhuangtai-sikao-maopao.gif" width="160" alt="工作状态-思考冒泡" title="工作状态-思考冒泡">
+  <img src="desk-pet/assets/preview/gongzuozhuangtai-manglu-dianan.gif" width="160" alt="工作状态-忙碌点按" title="工作状态-忙碌点按">
+  <img src="desk-pet/assets/preview/gongzuozhuangtai-qingdian-guidang.gif" width="160" alt="工作状态-清点归档" title="工作状态-清点归档">
+  <img src="desk-pet/assets/preview/gongzuozhuangtai-yuandi-duobu-zhangwang.gif" width="160" alt="工作状态-原地踱步张望" title="工作状态-原地踱步张望">
+  <img src="desk-pet/assets/preview/gongzuozhuangtai-queyue-qingzhu.gif" width="160" alt="工作状态-雀跃庆祝" title="工作状态-雀跃庆祝">
+  <img src="desk-pet/assets/preview/gongzuozhuangtai-chuitou-tanqi-maohan.gif" width="160" alt="工作状态-垂头叹气冒汗" title="工作状态-垂头叹气冒汗">
 </p>
 
 > 注：动画为透明背景；GIF 预览中透明部分显示为页面底色，实际 webm 播放为透明。
@@ -457,11 +457,11 @@ python encode_thumbs.py      # 转码 640×360 播放变体 → step04/
 
 ```sh
 # 把 step04 的播放变体同步进包内素材（webm 直接 cp），然后重新构建
-cp step04/*.webm dsh-pet/assets/webm/   # 播放格式（VP9-alpha）
-cd dsh-pet && npm run build
+cp step04/*.webm desk-pet/assets/webm/   # 播放格式（VP9-alpha）
+cd desk-pet && npm run build
 ```
 
-只想加几个动画、不想动包内素材：直接放进 `~/.desk-pet/dsh-pet/main-animation/webm/`，在动画池里写上文件名，右键「重载配置」即可。
+只想加几个动画、不想动包内素材：直接放进 `~/.desk-pet/main-animation/webm/`，在动画池里写上文件名，右键「重载配置」即可。
 
 > 中间产物（step01-04）由脚本生成、不入仓库；`video/` 源视频和脚本是成果、入库维护。
 
@@ -480,7 +480,7 @@ cd dsh-pet && npm run build
 ├── tools/             # 开发小工具（素材链各阶段预览等）
 ├── assets/            # 仓库展示用截图
 ├── .github/workflows/ # CI：原项目的 HEVC 素材转码流水线（Claude Code 模式用不到）
-├── dsh-pet/           # ③ 桌宠本体（desk-pet 程序 + 素材）
+├── desk-pet/           # ③ 桌宠本体（desk-pet 程序 + 素材）
 │   ├── src/           #   TS 源码：host（配置/路由/工作状态）、client（动画链）、shared（双端共用纯逻辑）
 │   │                  #   standalone（desk-pet 进程：Claude Code hook 翻译、claude -p 后端、单实例）
 │   ├── lib/           #   构建产物（npm run build 生成，不入库）
