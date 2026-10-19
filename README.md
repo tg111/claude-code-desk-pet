@@ -125,13 +125,13 @@ Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code
 - **托盘**：开关每只宠物的桌面显示、退出桌宠
 - **无障碍**：支持 `prefers-reduced-motion`
 
-> 原版的 **DSH 插件形态**（浏览器浮层、设置页、余额、`/balance` `/pet` `/chat` 命令）代码仍完整保留在 `dsh-pet/src/host`、`dsh-pet/src/client` 中，仍可按原版方式装进 DeepSeek Harness；下文凡标注「仅 DSH 内运行」的都属于那一形态。
+> 仓库里还保留着原版 DSH 插件形态的代码（浏览器浮层、网页设置页、余额查询、斜杠命令），Claude Code 模式用不到它们，本文档不再介绍。
 
 ## 🔌 对外接口（供其他插件调用）
 
 桌宠不只自己玩，也**对外开放一套 HTTP 接口**，让别的插件或脚本能驱动它、读它的状态。
 
-- **能做什么**：让它说一句指定的话、播一段指定动画、与它对话；读它当前说的话、工作状态、系统通知与余额
+- **能做什么**：让它说一句指定的话、播一段指定动画、与它对话、把它挪到某个位置或抛出去；读它当前说的话、工作状态与通知
 - **为什么开放**：桌宠不该只是个摆设——比如一个「女仆」插件巡检验完想说句话，就能让桌宠当它的「实体」开口；也方便任何人基于它做二次开发
 - **怎么调**：基址 `http://127.0.0.1:<端口>/dsh-pet-7340`（端口见 `~/.desk-pet/server.json`，默认 3080；只监听本机、无鉴权）。动作类接口只回 `{ok}`，数据统一从 `GET /state` 读。在 Claude Code 里，你甚至可以让 Claude 自己 `curl` 一下，让桌宠替它说句话
 
@@ -146,30 +146,16 @@ Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code
 
 - **Claude Code**：需要支持插件与 hooks 的版本（2.1 及以上实测）；hook 转发脚本只用 Node 内置模块（Claude Code 自带 Node 环境即可）
 - **操作系统**：Windows / Linux / macOS 三端均可运行（Electron 透明置顶窗）；Electron 按平台自动探测/下载（`electron.exe` / `Electron.app` / linux 单文件），无需手动安装
-- **无头 / 无桌面环境**：支持 Linux headless 等无图形会话——桌面模式自动检测显示环境（Linux 无 `DISPLAY` / `WAYLAND_DISPLAY` 时判定无显示、跳过桌面窗口，仅日志告警），浏览器 overlay 不受影响
-- **浏览器**：浏览器 overlay 兼容 **Chromium 内核（Chrome / Edge 等）与 Firefox**——透明动画依赖 VP9-Alpha webm，三者均已实测透明确认；**不支持 Safari**（macOS 不认 webm alpha，透明渲染为黑底）——macOS 用 `.mov` 素材（GitHub Release `assets-mov`），下载放入 + 改 `ANIMATION_EXT` 变量即可（见「②.5 Safari/HEVC 兼容素材」）
+- **无头 / 无桌面环境**：Linux 无 `DISPLAY` / `WAYLAND_DISPLAY`（SSH、容器）时自动跳过桌面窗口，只打一行日志告警；hook 照常接收，不影响 Claude Code
 - **多显示器**：支持多屏环境——跨屏漫游/抛掷以各屏工作区为界，异构缩放（各屏 DPI 不同）、任务栏条带、屏幕之间空洞均正确判定（横屏 / 竖屏 / 上下叠放皆可）
 
-
-## ⚙️ 余额展示（Balance，仅 DSH 内运行）
-
-> Claude Code 没有余额接口：Claude Code 模式下默认关闭（`balanceEnabled: false`），右键菜单也不出「查看余额」。以下是在 DSH 里运行时的行为。
-
-按 `eventsRefreshSec.balance`（秒）周期拉取当前服务商的余额/用量数据，每次刷新按档位触发一次余额动画，并在宠物头顶弹出**联想气泡**（随宠物大小等比缩放，10 秒自动消失）：
-
-- **DeepSeek 官方（`deepseek-official`）**：气泡显示账户余额（如 `余额 ¥8.79`）；余额按 ¥20 满额折算成已用百分比，分 6 档播放动画（钱袋满溢 → 金袋叮当 → 钱袋如常 → 数金皱眉 → 袋空如洗 → 分文不剩）
-- **OpenCode Zen Go（`opencode-go`）**：气泡显示 5h/周/月 三个额度窗口中最先告急的一个（如 `周额度已用 88%` / `2.5 天重置`），同样按已用百分比分档
-- **Command Code（`commandcode`，含 GOAT 等套餐）**：气泡显示 5h/周/月 三个额度窗口中最先告急的一个（与 opencode 同一口径：剩余额度最少者，通常先报 5h）；套餐无窗口限制时只报月度窗
-- **暂不支持的服务商**：未登记余额接口的服务商**不播档位动画，改为弹一句文字说明**——第一行「当前服务商暂不支持余额查询」，第二行报出当前 provider id（便于自查）；缺凭证 / 抓取失败同理（原因写在第二行）。自动轮询只在**原因变化**时弹一次（不反复打扰），手动 `/balance` 或桌面右键「查看余额」则每次都会弹
-- **按宠物开关**：`pets[i].balanceEnabled`（必填布尔）控制该宠物是否触发余额动画/显示气泡
-- **所需凭据**：对应 provider 的 API key（`deepseek-official` → `DEEPSEEK_API_KEY`；`opencode-go` → `OPENCODE_GO_API_KEY`；`commandcode` → `COMMANDCODE_API_KEY`），在 DSH 凭据中配置后启用；未匹配的服务商不触发动画，改为弹上面的文字说明气泡
 
 ## ⚙️ 碎碎念与对话
 
 - **模型后端**：Claude Code 模式下走 `claude -p`——用的是你在 Claude Code 里的登录（订阅 / API key / Bedrock / Vertex 都行），不用另配 key；默认 `haiku`，环境变量 `DESK_PET_MODEL=sonnet` 可换。调用时关闭全部工具、MCP 与 hook，也不写进 `/resume` 会话列表；**会计入你的 Claude 用量**
 - **碎碎念**：`pets[i].whisperEnabled` 开启后，按 `eventsRefreshSec.whisper`（秒，默认 900）周期自动生成一句——每只宠物独立周期、独立文案；触发时随机抽 `events.whisper` 动画 + 头顶说话气泡（10 秒消失）。默认开启
 - **手动触发**：右键菜单「碎碎念」随时来一句——不受 `whisperEnabled` 门控（该字段只关自动周期轮询）
-- **对话**：右键菜单「对话」打开输入框，与宠物聊天——回复走碎碎念同款展示（说话动画 + 气泡）；记忆持久化在 `~/.desk-pet/dsh-pet/memory.json`，浏览器与桌面共享同一份；多宠物时先用 `/pet` 选择对话目标
+- **对话**：右键菜单「对话」打开输入框，与宠物聊天——回复走碎碎念同款展示（说话动画 + 气泡）；记忆持久化在 `~/.desk-pet/dsh-pet/memory.json`（每只宠物各一份）
 
 ## ⚙️ 工作状态联动（Work Status）
 
@@ -177,60 +163,51 @@ Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code
 
 - **档位动画**：`animations.events.workStatus` 数组，索引即档位（勿在中间插入新档，只可追加末尾）
 - **气泡文案**：`workStatusTexts` 每档可配多句随机，任务详情（Claude Code 的 TodoWrite 清单里正在做的那一项）优先
-- **档位候选数组**：任意档位槽位可写 `string | string[]`——数组 = 档内随机抽 1，循环播放自动轮换、避免连播同一段（余额 / 碎碎念档位同样适用）
+- **档位候选数组**：任意档位槽位可写 `string | string[]`——数组 = 档内随机抽 1，循环播放自动轮换、避免连播同一段（碎碎念档位同样适用）
 
 ## ⚙️ 配置（大小 / 位置 / 多开）
 
-桌宠的大小、位置、多开均可配置，两条途径：
+所有配置都是 JSONC 文件，**改完右键宠物「重载配置」即生效**（或重启 `desk-pet`）。配置有错时不会静默：错误写在 `~/.desk-pet/desk-pet.log` / 前台终端里，桌面上会出现红色错误条并每 5 秒重试。
 
-> 💡 **两条途径只是编辑入口不同，最终都是同一份用户配置**——配置能力远不止设置页那几个选项：设置页可改大小/位置/边距/显示位置/余额开关/多开，但**手动编写配置文件可以任意自由配置**（动画池、播放权重、事件动画、刷新周期……），只要**格式与包内默认配置 `config.jsonc` 一致**即可，用户配置会**整体覆盖**对应字段的默认值。
+### 包内默认：`dsh-pet/assets/config.jsonc`
 
-### 方式一：设置页（仅 DSH 内运行）
-
-> Claude Code 模式没有网页设置页：请用方式三直接编辑 `~/.desk-pet/dsh-pet/main-config.jsonc`，改完右键宠物「重载配置」即生效。
-
-DSH 设置 → 「桌宠配置」：
-
-- **大小**：宽度 px（高度自动 = 宽度 × 9/16）
-- **位置**：四角（corner）＋ 水平/垂直边距（marginX / marginY）
-- **显示位置**（display）：web=仅浏览器 / desktop=仅桌面 / both=两者都显示 / none=都不显示
-- **余额功能**：勾选后该宠物才会触发余额动画并显示余额气泡（服务商未登记余额接口时改为弹文字说明气泡）
-- **多开**：添加/删除宠物，每只宠物独立 id、大小、位置
-- **物理参数**：拖拽抛掷手感（重力 / 弹性 / 地面摩擦 / 总力度 / 顶部反弹 / 宠物互撞）也能在设置页图形化改，不用去手改配置文件
-- **AI 模型**：碎碎念与对话可以**各自指定模型**——设置页「AI 模型」每项一个下拉框（与 DSH 对话框右下角的模型选择器同款：搜索框 + 按服务商分组的清单，选项同源）；选「跟随当前对话」= 用当前对话的模型，指定了但调用失败会自动回落到当前对话的模型重试一次
-- 点「保存」**即时生效**（无需刷新）；「同步」把包内 `config.jsonc` 的**原文**（含注释与全部高级字段）整份写入用户配置——既回到默认，又留下一份可直接编辑的完整配置
-
-### 方式二：config.jsonc（单一来源）
-
-插件包内 `dsh-pet/assets/config.jsonc` 的 `pets` 数组定义**默认宠物**：
+完整的结构参考（注释齐全）：宠物列表、动画池、播放权重、事件动画、刷新周期、物理参数、人设提示词……不要直接改它，把想改的字段抄进下面的用户配置即可。
 
 ```jsonc
 "pets": [
-  { "id": "main", "size": 462, "balanceEnabled": true, "display": "both", "position": { "corner": "top-right", "marginX": 24, "marginY": 100 } }
+  { "id": "main", "name": "蓝毛小女仆", "size": 462, "balanceEnabled": false, "whisperEnabled": true,
+    "workStatusEnabled": true, "display": "desktop", "position": { "corner": "top-right", "marginX": 24, "marginY": 100 } }
 ]
 ```
 
-- 每只宠物：`id`（标识）／ `size`（宽度 px）／ `balanceEnabled`（是否启用余额功能，必填布尔）／ `display`（web/desktop/both/none，必填，见上）／ `position`（corner 四角之一 + marginX/marginY 边距）
-- 余额刷新周期：`eventsRefreshSec.balance`（秒）——余额数据刷新与余额动画触发的间隔，启动时立即触发一次，之后按此周期循环（默认 1800）
-- 设置页的修改保存到用户层 `~/.desk-pet/dsh-pet/main-config.jsonc`（**完整宠物列表**，覆盖包内默认）；「同步」把包内 `config.jsonc` 原文整份写入该文件（等价于回落默认，但文件保留下来、可直接编辑）
+- 每只宠物：`id`（唯一标识）／ `name`（显示名，也会进人设）／ `size`（宽度 px，高度 = 宽 × 9/16）／ `whisperEnabled`（自动碎碎念）／ `workStatusEnabled`（跟随 Claude Code 切换工作状态）／ `display`（`desktop` = 显示、`none` = 隐藏；托盘里也能切）／ `position`（`corner` 四角之一 + `marginX` / `marginY` 边距）
+- `balanceEnabled` 是必填字段，但 Claude Code 没有余额接口，保持 `false` 即可
+- 多只宠物 = `pets` 里写多项，每只独立大小与位置
 
-### 方式三：手动编辑配置文件（高级，任意自由配置）
+### 用户配置：`~/.desk-pet/dsh-pet/main-config.jsonc`
 
-用户层配置文件位于 `~/.desk-pet/dsh-pet/main-config.jsonc`。**它和包内默认配置是同一套格式**——想改什么直接照着 `assets/config.jsonc` 的结构写即可，写错的字段/缺失的字段回落默认，无需（也无法）写完整份。设置页「同步」可直接生成这份完整文件（原文复制包内 `config.jsonc`，注释齐全）：
+**与包内默认同一套格式**，只写你想改的顶层字段；没写的回落默认。第一次可以直接把包内 `config.jsonc` 整份复制过来再改：
 
-| 字段                   | 作用                                                                                    | 格式与默认一致即可         |
-| ---------------------- | --------------------------------------------------------------------------------------- | -------------------------- |
-| `pets`                 | 宠物列表（大小/位置/多开/余额开关）                                                     | 数组，每项同 `pets[]` 结构 |
-| `animations`           | **动画池**：idle / turn / drag / clicks / moves / categories / events（余额等事件动画） | 同 `animations` 结构       |
-| `animationWeights`     | 动画链播放权重（idle / turn / move）                                                    | 同 `animationWeights` 结构 |
-| `eventsRefreshSec`     | 事件刷新周期（秒）                                                                      | 同 `eventsRefreshSec` 结构 |
-| `notificationsEnabled` | 系统通知总开关（布尔）                                                                  | 同 `notificationsEnabled`  |
+| 字段                   | 作用                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------ |
+| `pets`                 | 宠物列表（大小 / 位置 / 多开 / 各项开关）                                                  |
+| `whisperPrompt`        | 碎碎念与对话共用的人设提示词                                                               |
+| `whisperModel` / `chatModel` | 单独指定模型：`{ "provider": "claude-code", "model": "sonnet" }`；都留空 = 用 `DESK_PET_MODEL`（默认 haiku） |
+| `chatMemoryRounds`     | 对话每次带上的最近历史轮数（默认 5）                                                       |
+| `workStatusTexts`      | 六档工作状态的气泡文案（每档可写多句随机）                                                 |
+| `animations`           | **动画池**：idle / turn / drag / clicks / moves / categories / events（工作状态等事件动画） |
+| `animationWeights`     | 动画链播放权重（idle / turn / move）                                                       |
+| `eventsRefreshSec`     | 刷新周期（秒）：`whisper` = 自动碎碎念间隔（默认 900）                                     |
+| `physics`              | 拖拽抛掷手感：重力 / 弹性 / 地面摩擦 / 顶部反弹 / 总力度 / 宠物互撞                         |
+| `memes` / `whisperImageEnabled` / `chatImageEnabled` | 表情包配图映射与开关                                         |
 
-> 覆盖语义：用户层给出即**整体替换**该字段（如写了 `animations` 就用你的整份动画池，替代默认），没写的字段回落包内默认。校验在插件加载时执行——格式错误会在 DSH 控制台显式报错，不会静默运行残缺配置。
+> 覆盖语义：用户层给出即**整体替换**该字段（如写了 `animations` 就用你的整份动画池），没写的字段回落包内默认。自己写 `animations` 时 `events.balance` 不能删（原版留下的必填校验）。
 
-### 方式四：额外宠物（pet pack）——添加新「种类」
+同目录下还有：对话记忆 `memory.json`（删掉即清空记忆）、自定义动画 `main-animation/webm/*.webm`（VP9-Alpha，优先于包内素材，在动画池里写文件名即可用）、自定义表情包 `memes/*.png`（键与描述写进 `memes`）。
 
-方式一~三都只调整**默认宠物的实例**（数量/大小/位置），动画池始终是全局一份。要添加**全新种类的宠物**（独立动画池 + 自己的素材），在用户数据根下建 `pet/` 目录：
+### 额外宠物（pet pack）——添加新「种类」
+
+上面只能调整**默认宠物的实例**（数量/大小/位置），动画池始终是一份。要添加**全新种类的宠物**（独立动画池 + 自己的素材），在用户数据根下建 `pet/` 目录：
 
 ```
 ~/.desk-pet/dsh-pet/
@@ -241,7 +218,7 @@ DSH 设置 → 「桌宠配置」：
    └─ pig-animation/*.webm     ← pig 自己的动画素材（直接平铺，仿 main-animation）
 ```
 
-每只额外宠物 = 一个 `-config.json` + 一个 `-animation/` 目录，同前缀配对；扫描 `pet/` 自动发现，浏览器与桌面同时生效。一个 `-config.json` 定义**一个「种类」**（动画池 + 素材目录），`pets` 数组可放该种类的**任意多只实例**（共享动画池与素材）：
+每只额外宠物 = 一个 `-config.json` + 一个 `-animation/` 目录，同前缀配对；扫描 `pet/` 自动发现，右键「重载配置」即生效。一个 `-config.json` 定义**一个「种类」**（动画池 + 素材目录），`pets` 数组可放该种类的**任意多只实例**（共享动画池与素材）：
 
 ```jsonc
 // pet/pig-config.json —— 与 main-config.jsonc 同构的完整配置
@@ -251,20 +228,22 @@ DSH 设置 → 「桌宠配置」：
     {
       "id": "pig1",              // 实例 id（可多只；不必等于文件名前缀）
       "size": 420,
-      "balanceEnabled": true,
-      "display": "both",        // web / desktop / both / none
+      "balanceEnabled": false,
+      "display": "desktop",     // desktop = 显示 / none = 隐藏
       "position": { "corner": "top-right", "marginX": 24, "marginY": 100 }
     },
-    { "id": "pig2", "size": 360, "balanceEnabled": false, "display": "web", "position": { "corner": "top-left", "marginX": 24, "marginY": 100 } }
+    { "id": "pig2", "size": 360, "balanceEnabled": false, "display": "desktop", "position": { "corner": "top-left", "marginX": 24, "marginY": 100 } }
   ],
   "animations": {
     "idle": ["待机"], "turn": [], "drag": [], "clicks": ["打滚"],
     "moves": { "default": { "minDist": 80, "maxDist": 360, "margin": 20, "leadSec": 2, "tailSec": 2 }, "actions": [] },
     "categories": [],
-    "events": { "balance": ["余额-钱袋满溢", "余额-金袋叮当", "余额-钱袋如常", "余额-数金皱眉", "余额-袋空如洗", "余额-分文不剩"] }
+    // workStatus 六档 = 思考 / 工作 / 整理 / 等待 / 成功 / 出错；
+    // balance 是原版余额功能留下的必填项（Claude Code 用不到），填一个已有动画即可
+    "events": { "workStatus": ["思考", "干活", "整理", "等你", "庆祝", "沮丧"], "balance": ["待机"] }
   },
   "animationWeights": { "idle": 80, "turn": 0, "move": 0 },
-  "eventsRefreshSec": { "balance": 1800 }
+  "eventsRefreshSec": { "whisper": 900 }
 }
 ```
 
@@ -273,24 +252,6 @@ DSH 设置 → 「桌宠配置」：
 - **动画池不回落全局**：`animations` / `animationWeights` 必须写全（缺失即配置错误）
 - 与主配置同构的约束：`pets` 每只字段完整合法、数组内 id 唯一、`animations` / `animationWeights` 结构校验同一套规则；`notificationsEnabled` / `eventsRefreshSec` 是全局属性，不归宠物文件管（写了忽略、不写不报错）
 - 配置非法 / 缺少 `-animation/` 目录 / 实例 id 与主宠物冲突 → 加载时显式报错并跳过（不影响其他宠物）
-- 设置页不列出文件宠物（改文件即生效，刷新可见；保存/同步不会把它们写进 `main-config.jsonc`）
-- 余额档位动画按各宠物自己的 `events.balance`
-
-## 运行效果
-
-宠物实际运行在 DSH Web 界面中的样子：
-
-<p>
-  <img src="assets/screenshots/dsh-pet-running-1.png" width="380" alt="dsh-pet 运行效果 1" title="dsh-pet 运行效果 1">
-  <img src="assets/screenshots/dsh-pet-running-2.png" width="380" alt="dsh-pet 运行效果 2" title="dsh-pet 运行效果 2">
-  <img src="assets/screenshots/dsh-pet-running-3.png" width="380" alt="dsh-pet 运行效果 3" title="dsh-pet 运行效果 3">
-  <img src="assets/screenshots/dsh-pet-running-4.png" width="380" alt="dsh-pet 运行效果 4" title="dsh-pet 运行效果 4">
-  <img src="assets/screenshots/dsh-pet-running-5.png" width="380" alt="dsh-pet 运行效果 5" title="dsh-pet 运行效果 5">
-  <img src="assets/screenshots/dsh-pet-running-6.png" width="380" alt="dsh-pet 运行效果 6" title="dsh-pet 运行效果 6">
-  <img src="assets/screenshots/dsh-pet-running-7.png" width="380" alt="dsh-pet 运行效果 7" title="dsh-pet 运行效果 7">
-  <img src="assets/screenshots/dsh-pet-running-8.png" width="380" alt="dsh-pet 运行效果 8" title="dsh-pet 运行效果 8">
-</p>
-
 ## 效果预览
 
 全部动画（640×360，插件实际播放用的资源）——GIF 预览存放于仓库 `dsh-pet/assets/preview/`（raw 直链渲染，文件名采用拼音便于跨平台）；完整透明视频见插件包 `dsh-pet/assets/webm/`（VP9-alpha，唯一发布格式）：
@@ -431,7 +392,7 @@ DSH 设置 → 「桌宠配置」：
   <img src="dsh-pet/assets/preview/beishubiao-tuozhuai-xuankong-fankui.gif" width="160" alt="被鼠标拖拽悬空反馈" title="被鼠标拖拽悬空反馈">
 </p>
 
-**余额事件**（按余额已用百分比分档，满格 → 告急 → 耗尽）
+**钱袋系列**（原版余额功能的档位动画，右键「动作」里仍可点播）
 
 <p>
   <img src="dsh-pet/assets/preview/qian-dai-man-yi.gif" width="160" alt="余额-钱袋满溢" title="余额-钱袋满溢">
@@ -450,7 +411,7 @@ DSH 设置 → 「桌宠配置」：
   <img src="dsh-pet/assets/preview/suisuinian-duiping-suisuinian.gif" width="160" alt="碎碎念-对屏碎碎念" title="碎碎念-对屏碎碎念">
 </p>
 
-**工作状态动画**（跟随 DSH 会话事件，六档：思考 / 工作 / 整理 / 等待 / 成功 / 出错）
+**工作状态动画**（跟随 Claude Code 的 hook 事件，六档：思考 / 工作 / 整理 / 等待 / 成功 / 出错）
 
 <p>
   <img src="dsh-pet/assets/preview/gongzuozhuangtai-sikao-maopao.gif" width="160" alt="工作状态-思考冒泡" title="工作状态-思考冒泡">
@@ -506,41 +467,17 @@ python encode_thumbs.py      # 转码 640×360 播放变体 → step04/
 
 > **本项目全部采用路线 B**（全部动作均为 PR 手工抠像）：对"含第三方物品/透明边缘复杂"的动作，自动 HSV 抠像易残边或误抠，PR 手动遮罩更精细。两条路线产出同一级 `step02/`，后续步骤完全一致；`chroma_step02.py` 保留为自动化兜底，任何动作仍可一键自动生成。
 
-### ②.5 🍎 Safari/HEVC 兼容素材（macOS 专用 mov）
-
-插件默认只发布 `.webm`（VP9-alpha），Safari/WKWebView 不认 webm alpha（黑底），macOS 需要在 GitHub Release 下载官方转码的 **HEVC-with-Alpha `.mov`** 素材使用，三步：
-
-1. **下载**：<https://github.com/PC2005-cloud/dsh-pet/releases/tag/assets-mov>（固定 tag，保持最新；zip 解压后文件名与 webm 一一对应）
-2. **放入**：`.mov` 文件放进 `~/.desk-pet/dsh-pet/main-animation/mov/`（pet pack 宠物则是 `pet/<种类名>-animation/mov/`）
-3. **改变量**：搜 `ANIMATION_EXT`，把 `.webm` 改为 `.mov`——npm 包改产物 `lib/client.js`（桌面端如需再改 `runtime/electron-helper/shared-core.js`）；自构建改源码 `src/shared/constants.ts` 后重新构建
-
-宿主路由已固定双扩展名兜底（白名单 `webm|mov`、MIME、素材根按扩展名分派），无需改宿主。详情见插件 README「macOS 使用 mov」。
-
-### ③ 动画 → 插件
+### ③ 动画 → 桌宠
 
 ```sh
-# 把 step04 的播放变体同步进插件包（webm 直接 cp）
+# 把 step04 的播放变体同步进包内素材（webm 直接 cp），然后重新构建
 cp step04/*.webm dsh-pet/assets/webm/   # 播放格式（VP9-alpha）
-
-# 本地安装插件（--profile 填实际在用的那个：dsh web → web；
-# 桌面应用（Electron 版）改用应用内「插件管理」，见「快速开始（安装插件）」；
-# file: 指向插件目录 dsh-pet/dsh-pet）
-dsh plugin --profile web add file:D:/path/to/dsh-pet/dsh-pet
+cd dsh-pet && npm run build
 ```
+
+只想加几个动画、不想动包内素材：直接放进 `~/.desk-pet/dsh-pet/main-animation/webm/`，在动画池里写上文件名，右键「重载配置」即可。
 
 > 中间产物（step01-04）由脚本生成、不入仓库；`video/` 源视频和脚本是成果、入库维护。
-
-### 🎯 发布（单一 webm 格式）
-
-插件只发布一个 npm 包、一个素材格式（webm）；`files` 收敛为固定清单（lib / src / assets/webm / runtime/electron-helper / assets/fonts / assets/pic / assets/config.jsonc / scripts/ensure-electron.mjs / cordis.patch.yml，见 `prepare.js`；浏览器与桌面模式共用，包体最小）：
-
-```sh
-cd dsh-pet
-npm publish --tag latest   # prepack 自动执行构建（完整产物 + 收敛 files），无需手动构建
-```
-
-- client 端不做运行时浏览器判断——唯一播放格式 webm 在源码写死，无发布期注入
-- 需要 Safari/HEVC 版（macOS）：mov 素材官方发布在 GitHub Release `assets-mov`，下载解压进 `main-animation/mov/`，再把集中播放扩展名常量 `ANIMATION_EXT` 改为 `.mov`（见上方 ②.5）
 
 ### 项目结构
 
@@ -556,8 +493,8 @@ npm publish --tag latest   # prepack 自动执行构建（完整产物 + 收敛 
 ├── pr/  prproj/       # ② 路线 B：PR 手工抠像输入与工程（本地工作数据，不入库）
 ├── tools/             # 开发小工具（素材链各阶段预览等）
 ├── assets/            # 仓库展示用截图
-├── .github/workflows/ # CI：Safari/HEVC 转码流水线（macOS runner，手动触发 → 发布 assets-mov Release）
-├── dsh-pet/           # ③ 插件（可独立 npm 发布）
+├── .github/workflows/ # CI：原项目的 HEVC 素材转码流水线（Claude Code 模式用不到）
+├── dsh-pet/           # ③ 桌宠本体（desk-pet 程序 + 素材）
 │   ├── src/           #   TS 源码：host（配置/路由/工作状态）、client（动画链）、shared（双端共用纯逻辑）
 │   │                  #   standalone（desk-pet 进程：Claude Code hook 翻译、claude -p 后端、单实例）
 │   ├── lib/           #   构建产物（npm run build 生成，不入库）
