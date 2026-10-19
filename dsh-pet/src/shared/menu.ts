@@ -29,14 +29,12 @@ export interface MenuLeaf {
   label: string;
   /** 播放的动画名（点播动作）；action 优先于 anim */
   anim?: string;
-  /** 自定义动作：open-site=打开网站 / show-balance=查看余额；whisper=立即碎碎念一句；
-   * chat=打开对话弹窗；home=回到初始位置；reload=重载配置（桌面端专属：重启桌面 Helper，
-   * 全部桌面宠物窗口按最新配置重建——浏览器端刷新页面即可，不注入此项）；
-   * set-display=改这只宠物的显示位置（目标值见 display 字段；**两端都注入**——桌面端拿它把
-   * 宠物送走、浏览器端拿它把宠物送到桌面，菜单项统一由 displayMenuBranch() 提供）。
+  /** 自定义动作：open-site=打开 Claude Code；whisper=立即碎碎念一句；chat=打开对话弹窗；
+   * home=回到初始位置；reload=重载配置（重启桌面 Helper，全部桌面宠物窗口按最新配置重建）；
+   * set-display=改这只宠物的显示位置（目标值见 display 字段，菜单项由 hideMenuLeaf() 提供）。
    * 手动触发均不受 whisperEnabled 影响（该字段只关自动周期轮询） */
-  action?: 'open-site' | 'show-balance' | 'whisper' | 'chat' | 'home' | 'reload' | 'set-display';
-  /** set-display 的目标显示位置（与设置页「显示位置」下拉框同一套取值） */
+  action?: 'open-site' | 'whisper' | 'chat' | 'home' | 'reload' | 'set-display';
+  /** set-display 的目标显示位置（与配置 pets[].display 同一套取值） */
   display?: PetDisplay;
 }
 
@@ -49,28 +47,14 @@ export interface MenuBranch {
 export type MenuNode = MenuLeaf | MenuBranch;
 
 /**
- * 「显示位置」子菜单 —— 桌面端与浏览器端注入**同一份**（文案与设置页「显示位置」下拉框一致）。
- *
- * 为什么必须放 shared：两端各写一份必然漂移（改了一端的文案或取值，另一端没跟上），而这一项在
- * 两端语义完全对称——桌面端用它把宠物"送走"（仅网页），浏览器端用它把宠物"送到桌面"（仅桌面）。
- *
- * 只有「都不」是单向门（两端都不显示，恢复入口是设置页的下拉框）；其余三个值都能从某一端改回来
- * （仅网页→浏览器里还在，仅桌面→桌面上还在，两者→两端都在）。设置页那条路在本菜单出现之前就是
- * 唯一入口，本菜单只是多加了一条更近的路，没有削弱任何既有能力。
+ * 「隐藏」菜单项：把这只宠物的 display 改成 none（写回用户配置，宿主重建窗口）。
+ * 隐藏后它在桌面上就没有窗口、也没有右键菜单了——恢复入口是**系统托盘**（勾选它的名字），
+ * 所以文案里直接写明，免得用户以为宠物丢了。
  */
-export const displayMenuBranch = (): MenuBranch => ({
-  label: '显示位置',
-  children: [
-    { label: '仅网页', action: 'set-display', display: 'web' },
-    { label: '仅桌面', action: 'set-display', display: 'desktop' },
-    { label: '两者', action: 'set-display', display: 'both' },
-    { label: '都不', action: 'set-display', display: 'none' },
-  ],
-});
+export const hideMenuLeaf = (): MenuLeaf => ({ label: '隐藏（托盘可恢复）', action: 'set-display', display: 'none' });
 
 /** 事件名 → 分类标签（无映射时用事件名本身） */
 const EVENT_LABELS: Record<string, string> = {
-  balance: '余额档位',
   whisper: '碎碎念',
   workStatus: '工作状态',
 };

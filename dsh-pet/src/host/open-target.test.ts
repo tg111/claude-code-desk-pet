@@ -1,18 +1,11 @@
 /**
- * 「打开网站」按宿主形态自动分派的契约测试（宿主 = DSH 桌面应用 / dsh web）。
+ * 右键「打开 Claude Code」契约测试（跨进程：宿主 → Electron 主进程 → 渲染端菜单）。
  *
- * 需求：同一个工具项，宿主是**桌面应用**时要"打开桌面端"（把主窗口叫回前台），宿主是 web 时才是
- * "打开网站"（浏览器打开站点）。两半各自构建、无法互相 import，所以按本仓库既有做法读源码断言。
- *
- * 链路（改名/改判据只改一侧即失败）：
- *   宿主 index.ts 判 isDesktopHost → 注入 DSH_PET_OPEN_TARGET=desktop|site
- *   → helper main.js 读该变量（并沿 query 透给渲染端）→ desktop: shell.openExternal('dsh://open')，
- *     site: 原行为 shell.openExternal(站点 URL) → 渲染端据此改菜单文案。
- *
- * 为什么是 `dsh://open` 而不是 spawn 宿主 exe：DSH 桌面端自己 app.setAsDefaultProtocolClient('dsh') 并
- * 注册了 open-url → focusPrimaryWindow()，Windows 上再启动一次则由单实例锁把 second-instance 交给
- * 现有实例（claimDesktopSingleInstance(app, () => focusPrimaryWindow())）。spawn exe 会继承宿主的
- * ELECTRON_RUN_AS_NODE=1（起出来是 node 而非界面），还要自己探测安装路径——协议两样都不用管。
+ * 钉住三件事（两半各自构建、无法互相 import，只能读源码断言）：
+ *   ① 菜单项文案与动作名：渲染端菜单是「打开 Claude Code」，动作仍叫 open-site（共享菜单契约认它）；
+ *   ② 去向由**主进程**决定：只认 DESK_PET_OPEN_URL（且必须是 http/https），缺省 https://claude.ai/code；
+ *      渲染端只发一个不带参数的 IPC，页面无权决定打开哪里；
+ *   ③ 原版 DSH 的分派逻辑（dsh:// 唤起桌面应用、带启动令牌的站点 URL）不得复活。
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,74 +17,29 @@ const readSource = (rel: string): string => readFileSync(fileURLToPath(new URL(r
 
 const host = readSource('./index.ts');
 const main = readSource('../../runtime/electron-helper/main.js');
-const constants = readSource('../../runtime/electron-helper/constants.js');
+const preload = readSource('../../runtime/electron-helper/preload.js');
 const sprite = readSource('../../runtime/electron-helper/sprite.js');
-const standaloneContext = readSource('../standalone/context.ts');
 
-describe('「打开网站」按宿主形态自动分派', () => {
-  test('宿主：桌面应用判定 + 形态注入', () => {
-    assert.ok(
-      /const isDesktopHost = \(\): boolean => Boolean\(process\.versions\.electron\)/.test(host),
-      '宿主必须用 process.versions.electron 判定形态（桌面应用以 ELECTRON_RUN_AS_NODE 跑，该字段仍在；dsh web 是纯 Node）',
-    );
-    assert.ok(
-      /DSH_PET_OPEN_TARGET: openTargetOf\(ctx\) \?\? \(isDesktopHost\(\) \? 'desktop' : 'site'\)/.test(host),
-      'launchHelper 必须把形态注入 Helper（否则桌面宿主下仍只会打开浏览器站点）',
-    );
+describe('右键「打开 Claude Code」', () => {
+  test('渲染端：菜单文案固定，动作名仍是 open-site，经 preload 发不带参数的 IPC', () => {
+    assert.ok(/\{ label: '打开 Claude Code', action: 'open-site' \}/.test(sprite));
+    assert.ok(/leaf\.action === 'open-site'\) \{[\s\S]*?petBridge\.openClaudeCode\(\)/.test(sprite));
+    assert.ok(/openClaudeCode\(\) \{\s*ipcRenderer\.send\('pet:open-claude'\);/.test(preload));
   });
 
-  test('helper 主进程：desktop 走 dsh:// 协议，site 保持原行为', () => {
-    assert.ok(
-      /const OPEN_TARGET = \['desktop', 'claude'\]\.includes\(process\.env\.DSH_PET_OPEN_TARGET\)\s*\?\s*process\.env\.DSH_PET_OPEN_TARGET\s*:\s*'site'/.test(
-        main,
-      ),
-      "main.js 必须把 'desktop' / 'claude' 以外一律当 'site'（旧宿主 / 独立模式 / 手写 start-desktop 行为不得变）",
-    );
-    assert.ok(/openTarget: OPEN_TARGET/.test(main), '形态要沿窗口 query 透到渲染端（文案在那里决定）');
-    assert.ok(/shell\.openExternal\('dsh:\/\/open'\)/.test(main), '桌面宿主必须走 dsh://open 唤起应用窗口');
-    assert.ok(
-      /OPEN_TARGET === 'desktop'\) \{[\s\S]*?openSite\(url\)/.test(main),
-      'dsh:// 失败要回落成打开站点（协议未注册时不能"点了没反应"）',
-    );
-    assert.ok(
-      /const openSite = \(url\) => \{[\s\S]*?shell\.openExternal\(target\)/.test(main),
-      'site 路径（含回落）必须仍是原来那条打开站点的实现',
-    );
-    assert.ok(
-      (main.match(/dsh:\/\/open/g) ?? []).length === 1,
-      'dsh://open 只允许出现在 desktop 分支里（site 形态不得被顺带改成唤起应用）',
-    );
+  test('主进程：去向只认 DESK_PET_OPEN_URL（http/https），缺省 claude.ai/code', () => {
+    assert.ok(/const CLAUDE_OPEN_URL = \/\^https\?:\[\/\]\[\/\]\/\.test\(process\.env\.DESK_PET_OPEN_URL/.test(main));
+    assert.ok(/: 'https:\/\/claude\.ai\/code';/.test(main));
+    assert.ok(/ipcMain\.on\('pet:open-claude', \(\) => \{\s*shell\.openExternal\(CLAUDE_OPEN_URL\)/.test(main));
   });
 
-  test('helper 渲染端：文案随形态变，动作名不变', () => {
-    assert.ok(
-      /const OPEN_TARGET = \['desktop', 'claude'\]\.includes\(params\.get\('openTarget'\)\) \? params\.get\('openTarget'\) : 'site'/.test(
-        constants,
-      ),
-      "constants.js 必须从 query 读形态且默认 'site'",
-    );
-    assert.ok(
-      /OPEN_TARGET === 'desktop' \? '打开 DeepSeek Harness' : OPEN_TARGET === 'claude' \? '打开 Claude Code' : '打开网站'/.test(
-        constants,
-      ),
-      '菜单文案要跟着形态变',
-    );
-    assert.ok(
-      /label: OPEN_SITE_LABEL, action: 'open-site'/.test(sprite),
-      '文案可变，但 action 仍是 open-site（另一端只认这个动作名）',
-    );
+  test('原版 DSH 的分派逻辑不得复活', () => {
+    assert.ok(!/dsh:\/\/open/.test(main), '不得再唤起 DSH 桌面应用');
+    assert.ok(!/DSH_PET_SITE_URL|DSH_PET_OPEN_TARGET/.test(main + host), '不得再注入站点令牌 / 宿主形态');
+    assert.ok(!/isDesktopHost|authenticatedUrl/.test(host));
   });
 
-  test('独立模式不直接注入该变量：只经 ctx.openTarget 声明（缺省回落 site，不破坏"不打开 DSH 也能养桌宠"）', () => {
-    assert.ok(!/DSH_PET_OPEN_TARGET/.test(standaloneContext), '独立模式不得绕过宿主直接写环境变量');
-    assert.ok(
-      /options\.openTarget \? \{ openTarget: options\.openTarget \} : \{\}/.test(standaloneContext),
-      '只有调用方显式给出 openTarget（Claude Code 模式）才声明，缺省不带该字段',
-    );
-  });
-
-  test('Claude Code 形态：打开 Claude Code 页面、菜单不出余额', () => {
-    assert.ok(/OPEN_TARGET === 'claude'\) \{[\s\S]*?shell\.openExternal\(CLAUDE_OPEN_URL\)/.test(main));
-    assert.ok(/if \(!CLAUDE_HOST\) tools\.push\(\{ label: '查看余额', action: 'show-balance' \}\)/.test(sprite));
+  test('托盘总有「退出桌宠」（桌宠由 hook 在后台拉起，没有终端可按 Ctrl+C）', () => {
+    assert.ok(/items\.push\(\{ label: '退出桌宠', click: \(\) => trayQuitHost\(\) \}\)/.test(main));
   });
 });

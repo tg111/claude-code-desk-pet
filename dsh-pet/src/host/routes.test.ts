@@ -92,8 +92,8 @@ before(() => {
   let handler: ((req: unknown, res: unknown) => Promise<void>) | undefined;
   const noop = (): void => {};
   apply({
-    // 与 DSH 一致：effect 的返回值是**释放函数**。这里收下来在 after() 里调用——
-    // 插件现在有常驻定时器（余额周期刷新），不释放的话测试进程会一直等它（跑完不退出）。
+    // effect 的返回值是**释放函数**。这里收下来在 after() 里调用——
+    // 宿主有常驻定时器（碎碎念周期），不释放的话测试进程会一直等它（跑完不退出）。
     effect: (fn: () => unknown) => {
       try {
         const dispose = fn();
@@ -105,22 +105,17 @@ before(() => {
     },
     on: () => noop,
     webServer: { register: (spec: { handler: typeof handler }) => ((handler = spec.handler), noop) },
-    commands: { register: () => noop },
     logger: { warn: () => {}, info: () => {}, debug: () => {}, error: () => {} },
-    // 固定返回一个"没登记余额接口"的服务商：POST /balance 的路径因此是确定的
-    // （matchBalanceProvider 不命中 → S 里写 ok:false/unsupported，而不是靠抛错走到 fetch-error）
-    agentDefaultModel: { currentSelection: () => ({ provider: 'no-such-provider', model: 'x' }) },
-    credentials: { resolve: async () => undefined },
-    // 模型清单路由的数据源（与 DSH 模型选择器同源的宿主 llm 服务）：一个正常服务商 +
-    // 一个列不出模型的服务商（验证单点失败不拖垮整张清单）
+    agentDefaultModel: { currentSelection: () => ({ provider: 'test', model: 'x' }) },
+    // 模型清单路由的数据源：一个正常服务商 + 一个列不出模型的服务商（验证单点失败不拖垮整张清单）
     llm: {
       listProviders: () => [
-        { id: 'deepseek', name: 'DeepSeek' },
+        { id: 'claude-code', name: 'Claude Code' },
         { id: 'broken', name: 'Broken' },
       ],
       listModels: async (provider: string) => {
         if (provider === 'broken') throw new Error('adapter does not list models');
-        return [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }];
+        return [{ id: 'haiku', name: 'Haiku' }];
       },
     },
   });
@@ -128,8 +123,14 @@ before(() => {
 
   call = (url: string, method = 'GET', body?: string) =>
     new Promise<Result>((done) => {
+      // 保活：宿主的长轮询 / 等待定时器都 unref 了（不该拖住宿主进程退出）。请求挂起期间若没有别的
+      // 句柄，测试进程会以为事件循环已空、把后续用例整批取消——这里在请求完成前握一个 ref 句柄。
+      const keepAlive = setInterval(() => {}, 1000);
       const res = new FakeRes();
-      res.on('finish', () => done({ status: res.status, body: Buffer.concat(res.chunks).toString('utf8') }));
+      res.on('finish', () => {
+        clearInterval(keepAlive);
+        done({ status: res.status, body: Buffer.concat(res.chunks).toString('utf8') });
+      });
       // 请求桩：'end' 必须回调，否则 host 对 PUT/POST 的 readBody 永远等不到结束事件，
       // 调用方直接挂死。带 body 时先发 'data' 再发 'end'（readBody 两个事件都等）。
       void handler?.(
@@ -163,34 +164,34 @@ after(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe('/models 路由 —— 设置页「AI 模型」下拉框的数据源', () => {
-  test('每个服务商连同它名下的模型一起返回（与 DSH 模型选择器同源）', async () => {
+describe('/models 路由 —— 模型下拉框的数据源', () => {
+  test('每个服务商连同它名下的模型一起返回', async () => {
     const r = await call('/dsh-pet-7340/models');
     assert.equal(r.status, 200);
     const body = JSON.parse(r.body) as {
       providers: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }>;
     };
     assert.deepEqual(body.providers[0], {
-      id: 'deepseek',
-      name: 'DeepSeek',
-      models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }],
+      id: 'claude-code',
+      name: 'Claude Code',
+      models: [{ id: 'haiku', name: 'Haiku' }],
     });
   });
 
   test('单个服务商列不出模型 → 只让它空着，不拖垮整张清单', async () => {
-    const r = await call('/dsh-pet-7340/models');
-    const body = JSON.parse(r.body) as { providers: Array<{ id: string; models: unknown[] }> };
-    assert.equal(body.providers.length, 2, '一个服务商列不出模型不得让整个清单变空');
+    const body = JSON.parse((await call('/dsh-pet-7340/models')).body) as {
+      providers: Array<{ id: string; models: unknown[] }>;
+    };
+    assert.equal(body.providers.length, 2);
     assert.deepEqual(body.providers[1].models, []);
   });
 
   test('非 GET → 405（只读端点）', async () => {
-    const r = await call('/dsh-pet-7340/models', 'POST');
-    assert.equal(r.status, 405);
+    assert.equal((await call('/dsh-pet-7340/models', 'POST')).status, 405);
   });
 });
 
-describe('/state + /balance —— 轮询统一状态与余额动作端点', () => {
+describe('/state —— 轮询统一状态', () => {
   test('GET /state 返回 { sections, pets }（初始叶子 counter=0 / data=null）', async () => {
     const r = await call('/dsh-pet-7340/state');
     assert.equal(r.status, 200);
@@ -198,9 +199,9 @@ describe('/state + /balance —— 轮询统一状态与余额动作端点', () 
       sections: Record<string, { counter: number; data: unknown }>;
       pets: Record<string, unknown>;
     };
-    assert.deepEqual(Object.keys(body.sections).sort(), ['balance', 'config', 'notify', 'workStatus']);
-    assert.equal(body.sections.balance.counter, 0, '没人写过时 counter=0（前端首拉当基线）');
-    assert.equal(body.sections.balance.data, null);
+    assert.deepEqual(Object.keys(body.sections).sort(), ['config', 'workStatus']);
+    assert.equal(body.sections.workStatus.counter, 0, '没人写过时 counter=0（前端首拉当基线）');
+    assert.equal(body.sections.workStatus.data, null);
     assert.equal(body.sections.config.data, null, '配置变更信号也没人写过（counter=0 / data=null）');
     assert.deepEqual(body.pets, {});
   });
@@ -250,32 +251,6 @@ describe('/state + /balance —— 轮询统一状态与余额动作端点', () 
     // 其余用例都用 timeout=0，走同一个分支但不会真的等。
     assert.ok(elapsed >= 180, `应当真的挂起约 200ms，实测 ${elapsed}ms`);
   });
-
-  test('POST /balance 是动作端点：只回 { ok: true }，不返回余额数据', async () => {
-    const r = await call('/dsh-pet-7340/balance', 'POST');
-    assert.equal(r.status, 200);
-    assert.deepEqual(JSON.parse(r.body), { ok: true }, '动作端点不得把余额数据塞进响应');
-  });
-
-  test('GET /balance 已删除 → 405（数据只有 /state 一个出口）', async () => {
-    assert.equal((await call('/dsh-pet-7340/balance', 'GET')).status, 405);
-  });
-
-  test('POST /balance 之后：余额出现在 S 里，且带 manual 标记（前端据此必弹文字说明）', async () => {
-    await call('/dsh-pet-7340/balance', 'POST');
-    const r = await call('/dsh-pet-7340/state');
-    const leaf = (JSON.parse(r.body) as { sections: { balance: { counter: number; data: Record<string, unknown> } } })
-      .sections.balance;
-    assert.ok(leaf.counter > 0, '动作必须推进 counter（否则前端不会渲染）');
-    assert.equal(leaf.data.ok, false, '该服务商没登记余额接口 → 不可用状态也写进 S');
-    assert.equal(leaf.data.reason, 'unsupported');
-    assert.equal(leaf.data.manual, true, '手动触发的标记必须随数据一起写');
-  });
-
-  test('旧的 /balance/trigger 已删除 → 不再是一个端点（落到素材兜底 → 404）', async () => {
-    const r = await call('/dsh-pet-7340/balance/trigger');
-    assert.notEqual(r.status, 200, '触发计数端点应已删除');
-  });
 });
 
 describe('轮询统一后删掉的旧端点 —— 不得复活', () => {
@@ -283,7 +258,12 @@ describe('轮询统一后删掉的旧端点 —— 不得复活', () => {
   // 保留这条守卫是为了防止"顺手又加回一个 /xxx 轮询端点"（那正是这次要消灭的东西）。
   // 注意 /broadcast 不在此列：它以**新的语义**回来了（POST 写入端点，见下方专门的分组），
   // 这里的守卫只要求它不再是一个 GET 读端点。
-  for (const path of ['/dsh-pet-7340/work-status', '/dsh-pet-7340/notify']) {
+  for (const path of [
+    '/dsh-pet-7340/work-status',
+    '/dsh-pet-7340/notify',
+    '/dsh-pet-7340/balance',
+    '/dsh-pet-7340/config/meta',
+  ]) {
     test(`${path} 已删除（GET 不再是端点）`, async () => {
       const r = await call(path);
       assert.notEqual(r.status, 200, `${path} 应已并入 /state`);
@@ -532,7 +512,7 @@ describe('pic/memes 路由 —— 表情包素材归属（与 thumb 同一套语
     assert.equal((await call('/dsh-pet-7340/pic/memes/main/nope.png')).status, 404);
   });
 
-  test('通知图标（/pic/<名>.png）不受影响：仍只从包内 assets/pic 取', async () => {
+  test('光标等小图（/pic/<名>.png）不受影响：仍只从包内 assets/pic 取', async () => {
     // 源码形态下包内 assets 不可达 → 404（关键是不被 memes 分支吞掉）
     assert.equal((await call('/dsh-pet-7340/pic/logo.png')).status, 404);
   });

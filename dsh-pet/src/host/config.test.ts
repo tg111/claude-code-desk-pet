@@ -32,7 +32,6 @@ const BASE = {
       id: 'main',
       name: '主宠',
       size: 462,
-      balanceEnabled: false,
       whisperEnabled: false,
       workStatusEnabled: false,
       fixedEnabled: false,
@@ -51,7 +50,6 @@ const BASE = {
     },
     categories: [],
     events: {
-      balance: ['余额A'],
       whisper: ['碎碎念A'],
       workStatus: ['工作A', '工作B'],
     },
@@ -67,8 +65,7 @@ const BASE = {
   },
   whisperPrompt: '你是桌面宠物',
   chatMemoryRounds: 4,
-  notificationsEnabled: true,
-  eventsRefreshSec: { balance: 1800, whisper: 300 },
+  eventsRefreshSec: { whisper: 300 },
   workStatusTexts: [['在干活']],
 };
 
@@ -115,7 +112,6 @@ describe('readAllConfig —— events 槽位 string | string[] 校验', () => {
     cases({
       overlay: {
         animations: animationsWithEvents({
-          balance: BASE.animations.events.balance, // 既有规则：events.balance 必填非空数组（用户改 workStatus 会保留）
           whisper: BASE.animations.events.whisper,
           workStatus: [['工作思考', '开始工作'], '认真工作', '长时间工作看表', '工作被打扰', '工作结束', '摸鱼被抓'],
         }),
@@ -310,14 +306,14 @@ describe('readUserConfig —— 用户层读取必须容忍 JSONC 注释（保�
         ',\n  "memes": { "可爱": "我改过的描述" }\n}\n',
     );
     try {
-      const out = saveUserConfig({ pets: PETS, notificationsEnabled: true }, readUserConfig(paths)) as Record<
+      const out = saveUserConfig({ pets: PETS, whisperImageEnabled: true }, readUserConfig(paths)) as Record<
         string,
         unknown
       >;
       assert.deepEqual(out.animations, BASE.animations, 'animations 不得在保存时丢失');
       assert.deepEqual(out.physics, BASE.physics, 'physics 不得在保存时丢失');
       assert.deepEqual(out.memes, { 可爱: '我改过的描述' }, '手写的 memes 不得在保存时丢失');
-      assert.equal(out.notificationsEnabled, true, '白名单字段仍以请求体为准');
+      assert.equal(out.whisperImageEnabled, true, '白名单字段仍以请求体为准');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -796,7 +792,6 @@ describe('文件宠物条目 —— 全局默认（用户层作基座）+ 种类
         id: 'pig1',
         name: '小猪',
         size: 300,
-        balanceEnabled: false,
         display: 'web',
         position: { corner: 'top-left', marginX: 10, marginY: 10 },
       },
@@ -841,7 +836,7 @@ describe('文件宠物条目 —— 全局默认（用户层作基座）+ 种类
         chatMemoryRounds: 9,
         whisperModel: { provider: 'p1', model: 'm1' },
         chatModel: { provider: 'p2', model: 'm2' },
-        eventsRefreshSec: { balance: 900, whisper: 60 },
+        eventsRefreshSec: { custom: 900, whisper: 60 },
       },
       pack: PACK,
     });
@@ -855,7 +850,7 @@ describe('文件宠物条目 —— 全局默认（用户层作基座）+ 种类
     assert.equal(pig.chatMemoryRounds, 9);
     assert.deepEqual(pig.whisperModel, { provider: 'p1', model: 'm1' });
     assert.deepEqual(pig.chatModel, { provider: 'p2', model: 'm2' });
-    assert.deepEqual(pig.eventsRefreshSec, { balance: 900, whisper: 60 });
+    assert.deepEqual(pig.eventsRefreshSec, { custom: 900, whisper: 60 });
     // 对照：main 条目一直就是用户层（行为不变）
     assert.equal(rec(out.main.physics).gravity, 999);
     assert.equal(out.main.chatMemoryRounds, 9);
@@ -932,30 +927,30 @@ describe('文件宠物条目 —— 全局默认（用户层作基座）+ 种类
   });
 
   test('eventsRefreshSec 也进全局默认：用户层写了 → 种类整段继承', () => {
-    const out = merged({ overlay: { eventsRefreshSec: { balance: 900, whisper: 60 } }, pack: PACK });
-    assert.deepEqual(out.pig.eventsRefreshSec, { balance: 900, whisper: 60 });
-    assert.deepEqual(out.main.eventsRefreshSec, { balance: 900, whisper: 60 });
+    const out = merged({ overlay: { eventsRefreshSec: { custom: 900, whisper: 60 } }, pack: PACK });
+    assert.deepEqual(out.pig.eventsRefreshSec, { custom: 900, whisper: 60 });
+    assert.deepEqual(out.main.eventsRefreshSec, { custom: 900, whisper: 60 });
   });
 
   test('eventsRefreshSec 是整段替换：种类写了自己的，就不再逐键合并基座', () => {
     const out = merged({
-      overlay: { eventsRefreshSec: { balance: 900, whisper: 60 } },
-      pack: { ...PACK, eventsRefreshSec: { balance: 111 } },
+      overlay: { eventsRefreshSec: { custom: 900, whisper: 60 } },
+      pack: { ...PACK, eventsRefreshSec: { custom: 111 } },
     });
     // 旧的逐键深合并会把基座的 whisper: 60 补回来；整段替换下缺的键就是缺
-    assert.deepEqual(out.pig.eventsRefreshSec, { balance: 111 });
+    assert.deepEqual(out.pig.eventsRefreshSec, { custom: 111 });
   });
 
-  test('eventsRefreshSec 只写一半 → 缺的键不补（消费端各自兜底 1800 / 300）', () => {
-    const out = merged({ overlay: { eventsRefreshSec: { whisper: 60 } }, pack: PACK });
-    assert.deepEqual(out.pig.eventsRefreshSec, { whisper: 60 });
-    assert.equal('balance' in rec(out.pig.eventsRefreshSec), false, '不再自动补 balance');
-    assert.deepEqual(out.main.eventsRefreshSec, { whisper: 60 });
+  test('eventsRefreshSec 只写一半 → 缺的键不补（消费端各自兜底：碎碎念 300）', () => {
+    const out = merged({ overlay: { eventsRefreshSec: { custom: 60 } }, pack: PACK });
+    assert.deepEqual(out.pig.eventsRefreshSec, { custom: 60 });
+    assert.equal('whisper' in rec(out.pig.eventsRefreshSec), false, '不再自动补 whisper');
+    assert.deepEqual(out.main.eventsRefreshSec, { custom: 60 });
   });
 
   test('eventsRefreshSec 里不认识的键不再被静默丢弃', () => {
-    const out = merged({ overlay: { eventsRefreshSec: { balance: 900, foo: 10 } }, pack: PACK });
-    assert.deepEqual(out.pig.eventsRefreshSec, { balance: 900, foo: 10 });
+    const out = merged({ overlay: { eventsRefreshSec: { custom: 900, foo: 10 } }, pack: PACK });
+    assert.deepEqual(out.pig.eventsRefreshSec, { custom: 900, foo: 10 });
   });
 
   test('eventsRefreshSec 整段非法 → 告警 + 回退基座（种类回到内置默认）', () => {

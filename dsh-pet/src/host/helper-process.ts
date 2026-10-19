@@ -2,9 +2,10 @@
  * 桌面 Helper 进程管理器 —— 拉起/守护 Electron 透明窗口进程。
  *
  * 架构：Helper 与宿主之间除了日志，还有一条 **stdin/stdout JSON 行协议**（bridge）：
- *   - 渲染端不再直接访问 DSH WebServer（DSH Desktop 2.0.3+ 的浏览器访问闸门会给插件自拉的
- *     独立进程裸 HTTP 请求回 403），改走自定义 scheme `dsh-pet-bridge://` → Electron 主进程
+ *   - 渲染端不直接发 HTTP，走自定义 scheme `dsh-pet-bridge://` → Electron 主进程
  *     （main.js 的 protocol.handle）→ 本模块的管道 → 宿主 handlePetRoute（与 HTTP 路由同一份逻辑）。
+ *     （这条管道源自原版 DSH：它的访问闸门会拦插件子进程的裸 HTTP；desk-pet 沿用它，渲染端因此
+ *     不依赖端口、也不受本机其他程序占用端口影响。）
  *   - 协议行统一前缀 `dsh-pet-bridge:`，与普通日志行区分（main.js 的 console 输出也走 stdout）。
  *   - 素材（webm/字体/光标）不把二进制过管道：宿主返回文件绝对路径，main.js 自行读盘应答。
  * 本文件负责解析 Electron 可执行文件、以子进程方式拉起 electron-helper/main.js、
@@ -73,7 +74,7 @@ type Logger = {
  * 优先级：
  *   1. 显式候选（用户配置）/ DSH_PET_ELECTRON_PATH 环境变量
  *   2. 本机已安装的 electron npm 包（require('electron') 返回二进制路径）
- *   3. $DSH_HOME/electron（默认 ~/.dsh/electron）—— ensureElectronDownload 的落地路径
+ *   3. <数据目录>/electron（默认 ~/.desk-pet/electron）—— ensureElectronDownload 的落地路径
  *   4. 都不存在时由 ensureElectronDownload() 进程内异步下载（不 spawn 子进程，
  *      避免 process.execPath 在 Electron 宿主（如 DSH Desktop）里指向宿主 exe 导致崩溃）
  */
@@ -99,7 +100,6 @@ export function resolveElectronPath(candidates: Array<string | undefined> = []):
   return list.find((value) => existsSync(value));
 }
 
-/** $DSH_HOME（默认 ~/.dsh），与 ensure-electron.mjs 的 HOME 计算一致。 */
 /**
  * 判断当前环境能否真的跑起 Electron 图形窗口。
  *
@@ -121,9 +121,17 @@ export function hasGraphicalDisplay(): boolean {
   return Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
 }
 
+/**
+ * 数据目录：DSH_HOME（显式给了就尊重）→ DESK_PET_HOME → `<用户目录>/.desk-pet`。
+ * 纯函数版本（便于单测）；与 scripts/ensure-electron.mjs、Claude Code 插件的转发脚本同一口径。
+ */
+export function dataHomeFor(env: Record<string, string | undefined>, userProfile: string): string {
+  return env.DSH_HOME || env.DESK_PET_HOME || join(userProfile, '.desk-pet');
+}
+
+/** 当前进程的数据目录（配置、对话记忆、Electron 落地目录都在这下面） */
 export function dshHomeDir(): string {
-  const userProfile = process.env.USERPROFILE || process.env.HOME || '';
-  return process.env.DSH_HOME || join(userProfile, '.dsh');
+  return dataHomeFor(process.env, process.env.USERPROFILE || process.env.HOME || '');
 }
 
 // ---------- 平台适配（win32 / darwin / linux）----------
@@ -171,7 +179,7 @@ export interface EnsureElectronOptions {
  * 进程内下载并解压 Electron 到 $DSH_HOME/electron。
  * 不 spawn 子进程：在 CLI node 与 Electron 宿主（DSH Desktop）里都可用，
  * 修复原 ensure-electron.mjs 用 process.execPath 调脚本导致宿主重复拉起的问题。
- * 已存在则原样返回；失败返回 undefined（不影响 DSH 与浏览器 overlay）。
+ * 已存在则原样返回；失败返回 undefined（只影响桌面小窗，服务照常接收 hook）。
  */
 export async function ensureElectronDownload(options: EnsureElectronOptions = {}): Promise<string | undefined> {
   const version = options.version || process.env.DSH_PET_ELECTRON_VERSION || '43.3.0';
@@ -189,7 +197,7 @@ export async function ensureElectronDownload(options: EnsureElectronOptions = {}
   log(`Electron not found, downloading v${version} (${PLAT}-${process.arch}) ...`);
 
   try {
-    // 目录创建也可能失败（权限不足、同名文件等），与下载失败一样降级到浏览器宠物。
+    // 目录创建也可能失败（权限不足、同名文件等），与下载失败一样只告警、不拉起桌面窗口。
     mkdirSync(targetDir, { recursive: true });
     // 官方 @electron/get 下载：负责 URL 拼装、镜像、SHA256 校验（sumchecker）、下载缓存
     // （同一版本只下载一次，之后命中缓存秒回）。超时用 AbortController 传给 fetch。
@@ -231,7 +239,7 @@ export async function ensureElectronDownload(options: EnsureElectronOptions = {}
       // 与列表里的 linux-gnu / linux-musl 都不是一回事）。静态 import 会在模块求值期就执行
       // binding.js 顶层的 `if (!nativeBinding) throw`，于是**只想用 Web 模式**的用户也会因为
       // 「插件入口加载失败」而整个 entry 激活失败（同类故障见 issue #80）。改成按需加载后，
-      // 这条路径只在真要解压时才走，失败也落进本函数的 catch → 降级到浏览器宠物。
+      // 这条路径只在真要解压时才走，失败也落进本函数的 catch → 只告警、不拉起桌面窗口。
       const { default: extract } = await import('@electron-internal/extract-zip');
       await extract(zipPath, { dir: targetDir });
       if (!existsSync(exe)) {

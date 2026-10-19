@@ -3,7 +3,7 @@
  *
  * 为什么值得单独测：独立模式把插件的宿主半边（`apply`）跑在这个 ctx 上，
  * 而 `apply` 里有 9 个 effect、两条自我续期的轮询定时器，以及"最后一行才拉起桌面 Helper"
- * 的顺序依赖。这里逐条钉住 ctx 必须满足的语义（与 Cordis 对齐）与服务替身的降级口径 ——
+ * 的顺序依赖。这里逐条钉住 ctx 必须满足的语义与"没注入模型"时的降级口径 ——
  * 任何一条不成立，独立模式要么起不来，要么悄悄变成"能跑但没宠物"。
  */
 import { describe, test } from 'node:test';
@@ -33,19 +33,16 @@ type Standalone = ReturnType<typeof createStandaloneContext>;
 const effectOf = (context: Standalone): ((fn: () => unknown, label?: string) => unknown) =>
   context.ctx.effect as (fn: () => unknown, label?: string) => unknown;
 const onOf = (context: Standalone): (() => unknown) => context.ctx.on as () => unknown;
-const commandsOf = (context: Standalone): { register(): unknown } => context.ctx.commands as { register(): unknown };
 const webServerOf = (context: Standalone): { port: number; register(spec: RegisteredRoute): unknown } =>
   context.ctx.webServer as { port: number; register(spec: RegisteredRoute): unknown };
 const agentOf = (context: Standalone): { currentSelection(): { provider: string; model: string } } =>
   context.ctx.agentDefaultModel as { currentSelection(): { provider: string; model: string } };
-const credentialsOf = (context: Standalone): { resolve(ref: unknown): Promise<unknown> } =>
-  context.ctx.credentials as { resolve(ref: unknown): Promise<unknown> };
 const llmOf = (
   context: Standalone,
 ): {
   listProviders(): unknown[];
   listModels(provider: string): Promise<unknown[]>;
-  // 形状必须是 AsyncIterable（DSH 的 llm.stream 签名）。这里若写成 Promise，
+  // 形状必须是 AsyncIterable（宿主对 llm.stream 的用法）。这里若写成 Promise，
   // 就与替身实现犯了同一个错 —— 也正是这个断言让 0.3.4 的类型检查与真实契约脱节。
   stream(options: unknown): AsyncIterable<unknown>;
 } =>
@@ -55,7 +52,7 @@ const llmOf = (
     stream(options: unknown): AsyncIterable<unknown>;
   };
 
-describe('createStandaloneContext —— 与 Cordis 对齐的语义', () => {
+describe('createStandaloneContext —— 宿主依赖的 ctx 语义', () => {
   test('effect 同步执行、收集释放函数；dispose 逆序释放且等待异步释放', async () => {
     const context = createStandaloneContext({ port: 1, logger: silentLogger() });
     const order: string[] = [];
@@ -114,10 +111,16 @@ describe('createStandaloneContext —— 与 Cordis 对齐的语义', () => {
     assert.equal(webServer.port, 31234, '监听完成后插件必须读到真实端口');
   });
 
-  test('on() / commands.register() 必须返回可调用对象（插件把它们当释放函数用）', () => {
+  test('on() 必须返回可调用对象（宿主把它当释放函数用）', () => {
     const context = createStandaloneContext({ port: 1, logger: silentLogger() });
     assert.equal(typeof onOf(context)(), 'function');
-    assert.equal(typeof commandsOf(context).register(), 'function');
+  });
+
+  test('伪 ctx 不再带原版 DSH 的服务替身（commands / credentials / connection）', () => {
+    const context = createStandaloneContext({ port: 1, logger: silentLogger() });
+    for (const key of ['commands', 'credentials', 'connection']) {
+      assert.equal(key in context.ctx, false, key);
+    }
   });
 });
 
@@ -139,19 +142,18 @@ describe('服务替身的降级口径 —— 显式失败，不假装成功', ()
     assert.deepEqual(result, { ok: false, reason: 'provider-missing', message: '当前对话未配置模型' });
   });
 
-  test('凭证恒不可得；llm 清单为空、生成入口是"迭代即失败"的 async iterable', async () => {
+  test('没注入 llm 时：清单为空、生成入口是"迭代即失败"的 async iterable', async () => {
     const context = createStandaloneContext({ port: 1, logger: silentLogger() });
-    assert.equal(await credentialsOf(context).resolve('DEEPSEEK_API_KEY'), undefined);
     const llm = llmOf(context);
     assert.deepEqual(llm.listProviders(), []);
     assert.deepEqual(await llm.listModels('deepseek'), []);
-    // 契约：stream() 返回的是 AsyncIterable（DSH 的 llm.stream 签名），不是 Promise。
+    // 契约：stream() 返回的是 AsyncIterable（宿主对 llm.stream 的用法），不是 Promise。
     // 旧断言写成 "stream() 自己 reject"，把错误的契约固化了下来：它从未走 for await，
     // 所以全绿；而真实集成一跑就崩（TypeError + 无人接管的 rejected promise）。
     const streamed = llm.stream({});
     assert.equal(typeof streamed[Symbol.asyncIterator], 'function');
     await assert.rejects(async () => {
       for await (const chunk of streamed) void chunk;
-    }, /独立模式未接入模型/);
+    }, /未接入模型/);
   });
 });

@@ -1,5 +1,5 @@
 /**
- * 独立模式体检（`--check`）：不 `apply`、不起窗口、不联网，只回答"为什么能/不能跑起来"。
+ * desk-pet 体检（`--check`）：不 `apply`、不起窗口、不联网，只回答"为什么能/不能跑起来"。
  *
  * 为什么单独一份而不是复用路由：体检的价值恰恰在于**不启动宿主**（否则一跑就把桌宠窗口拉起来，
  * 排查"没出现"时反而多一个变量）。因此这里直接读插件自己的纯模块
@@ -42,7 +42,7 @@ export function runCheck(logger: StandaloneLogger): number {
   const lines: string[] = [
     `Node            ${process.version}（${process.platform}-${process.arch}）`,
     `插件            dsh-pet@${packageVersion(packageRoot)}  ${packageRoot}`,
-    `DSH_HOME        ${home}`,
+    `数据目录        ${home}`,
     `用户配置        ${paths.userFile}${existsSync(paths.userFile) ? '' : '（不存在 → 用包内默认）'}`,
     `文件宠物目录    ${paths.petDir}${existsSync(paths.petDir) ? '' : '（不存在）'}`,
     `内置默认配置    ${paths.defaultFile}${existsSync(paths.defaultFile) ? '' : '  ✗ 缺失'}`,
@@ -59,7 +59,7 @@ export function runCheck(logger: StandaloneLogger): number {
   if (!existsSync(paths.defaultFile)) {
     return fail(
       '包内默认配置读不到：很可能是在**直接跑源码**（包根被解析成了 src/）。' +
-        '独立模式请用构建产物：npm run bundle 后 node lib/standalone.js，或 npm run standalone。',
+        '请用构建产物：npm run build 后 node lib/standalone.js（或 desk-pet / npm run standalone）。',
     );
   }
 
@@ -77,7 +77,7 @@ export function runCheck(logger: StandaloneLogger): number {
     const desktopVisible = flattenPetList(merged).filter(isDesktopVisible);
     lines.push(
       `桌面小窗        ${desktopVisible.length} 只${
-        desktopVisible.length === 0 ? '（display 需要 desktop 或 both，否则独立模式没有可显示的宠物）' : ''
+        desktopVisible.length === 0 ? '（宠物都被隐藏了：display 改回 desktop，或在托盘里勾选）' : ''
       }`,
     );
     for (const line of lines) logger.info(line);

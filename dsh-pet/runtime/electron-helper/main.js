@@ -1,5 +1,5 @@
 /**
- * dsh-pet desktop helper —— Electron 主进程
+ * desk-pet desktop helper —— Electron 主进程（由 desk-pet 进程经 src/host/helper-process.ts 拉起）
  *
  * 职责：为**每只桌面宠物**开一个独立的局部小窗口（透明、置顶、不可激活），
  * 窗口 = 宠物包围盒 + 四周外扩余量（renderer 的 WINDOW_MARGIN_RATIO，为气泡/弹窗预留空间），
@@ -14,12 +14,10 @@
  * （旧注释写作"窗口不全屏就不黑"，那是把 0.1.x 的「全屏画布 → 每宠小窗」与输入模型改造这两件
  * 同时发生的事，混成了一个自变量。）
  * 输入：窗口默认**整窗点击穿透**（setIgnoreMouseEvents(true,{forward:true})），渲染端在光标
- * 进/出宠物身体命中区时经 pet:set-interactive 翻转可交互——透明像素不挡下层应用，
- * 与浏览器 overlay（仅 .dsh-pet-hit 可交互）严格对齐。
+ * 进/出宠物身体命中区时经 pet:set-interactive 翻转可交互——透明像素不挡下层应用。
  *
  * 数据通道（bridge 模式，DSH_PET_BRIDGE=1 由宿主注入）：
- * 渲染端不再直连宿主 WebServer（DSH Desktop 2.0.3+ 的浏览器访问闸门会拦无令牌裸 HTTP）——
- * 本进程注册自定义 scheme `dsh-pet-bridge://`，protocol.handle 收到渲染端请求后
+ * 渲染端不直连宿主 HTTP 服务——本进程注册自定义 scheme `dsh-pet-bridge://`，protocol.handle 收到渲染端请求后
  * 经 stdin/stdout JSON 行协议转发宿主（helper-process.ts 的 BridgeHandler），
  * 宿主用与 HTTP 路由同一份 handlePetRoute 应答；素材应答带文件绝对路径，本进程读盘返回。
  * 无 DSH_PET_BRIDGE（手动 start-desktop / 开发流）时保持旧路径：渲染端直接 HTTP 访问宿主。
@@ -257,14 +255,7 @@ function petScale() {
 /** bridge 模式：DSH_PET_BRIDGE=1（宿主注入）。开启时注册 dsh-pet-bridge scheme + 管道转发 */
 const BRIDGE = process.env.DSH_PET_BRIDGE === '1';
 
-/** 「打开网站」这一项的去向（宿主按自身形态注入）：
- *  'desktop' = 宿主是 DSH 桌面应用 → 唤起桌面应用主窗口；
- *  'claude'  = Claude Code 模式（desk-pet）→ 默认浏览器打开 Claude Code 页面（DESK_PET_OPEN_URL 可改）；
- *  'site'    = dsh web / 独立模式 / 手写 start-desktop（无该变量）→ 原行为：默认浏览器打开站点。 */
-const OPEN_TARGET = ['desktop', 'claude'].includes(process.env.DSH_PET_OPEN_TARGET)
-  ? process.env.DSH_PET_OPEN_TARGET
-  : 'site';
-/** Claude Code 模式下「打开 Claude Code」的去向（只接受 http(s)，否则回落默认页） */
+/** 右键「打开 Claude Code」的去向（只接受 http(s)，否则回落默认页） */
 const CLAUDE_OPEN_URL = /^https?:[/][/]/.test(process.env.DESK_PET_OPEN_URL || '')
   ? process.env.DESK_PET_OPEN_URL
   : 'https://claude.ai/code';
@@ -531,8 +522,6 @@ function createPetWindows() {
         query: {
           configUrl,
           bridge: BRIDGE ? '1' : '0',
-          // 工具项「打开网站」的文案按宿主形态自动变（见 sprite.js）：desktop=唤起桌面应用 / site=打开站点
-          openTarget: OPEN_TARGET,
           scale: String(scale),
           petIndex: String(pet.index),
           workAreaW: String(area.width),
@@ -694,7 +683,7 @@ function traySetPetDisplay(id, display) {
   });
 }
 
-/** 退出整个桌宠（Claude Code 模式）：请宿主服务停机，宿主收尾时会停掉本进程；宿主不应答就自己退 */
+/** 退出整个桌宠：请宿主服务停机，宿主收尾时会停掉本进程；宿主不应答就自己退 */
 function trayQuitHost() {
   fetch(ORIGIN + '/shutdown', { method: 'POST' })
     .catch((e) => {
@@ -742,20 +731,17 @@ async function startTray() {
         display: String((pet && pet.display) || ''),
       }))
       .filter((pet) => pet.id);
-    // Claude Code 模式：桌宠由 hook 在后台拉起、没有终端可按 Ctrl+C，托盘是唯一的退出口
-    if (!pets.length && OPEN_TARGET !== 'claude') return; // 配置里没有任何宠物：没有可切换的对象，不建托盘
+    // 桌宠由 hook 在后台拉起、没有终端可按 Ctrl+C：托盘是唯一的退出口，没有宠物也要建
     const items = pets.map((pet) => ({
       label: pet.name || pet.id,
       type: 'checkbox',
       checked: isDesktopDisplay(pet.display),
       click: () => traySetPetDisplay(pet.id, toggleDisplay(pet.display)),
     }));
-    if (OPEN_TARGET === 'claude') {
-      if (items.length) items.push({ type: 'separator' });
-      items.push({ label: '退出桌宠', click: () => trayQuitHost() });
-    }
+    if (items.length) items.push({ type: 'separator' });
+    items.push({ label: '退出桌宠', click: () => trayQuitHost() });
     tray = new Tray(trayIcon());
-    tray.setToolTip(OPEN_TARGET === 'claude' ? 'Claude Code 桌宠' : 'dsh-pet 桌面宠物');
+    tray.setToolTip('Claude Code 桌宠');
     tray.setContextMenu(Menu.buildFromTemplate(items));
     // Windows 上 setContextMenu 只接管右键，左键默认什么都不做（macOS 相反：左键即弹菜单）
     if (TRAY_PLATFORM.leftClickPopsMenu) tray.on('click', () => tray.popUpContextMenu());
@@ -920,53 +906,12 @@ app.whenReady().then(() => {
     inputRegions.set(win.id, { dragging: input.dragging === true, rects });
   });
 
-  // 右键菜单「打开网站」：交给**系统默认浏览器**打开（等效于网页里 Ctrl+点击链接新标签页），
-  // 不建专属窗口——宠物窗口机制是透明小窗，不该承载常规网页浏览。URL 由渲染端从
-  // configUrl 推导 = DSH webServer 端口，端口变化自动跟随
-  const openSite = (url) => {
-    // 宿主注入的已鉴权站点 URL（含本进程启动令牌）：DSH 只在 `GET /` 接受它并换发绑定 authority 的
-    // 浏览器 Cookie，裸 origin 在默认浏览器里必然 401（#87）。令牌等价登录态，所以**只在与目标同
-    // origin 时**才启用——绝不让它被带去别的站点；取不到该变量（旧宿主 / standalone / 手写
-    // start-desktop）时，行为与以前完全一致。
-    let target = url;
-    const authed = process.env.DSH_PET_SITE_URL || '';
-    if (/^https?:[/][/]/.test(authed)) {
-      try {
-        if (new URL(authed).origin === new URL(url).origin) target = authed;
-      } catch {
-        /* 形状不对：保持裸地址（原行为） */
-      }
-    }
-    shell.openExternal(target).catch((error) => {
-      console.error('[dsh-pet-desktop-helper] openExternal failed:', error);
+  // 右键菜单「打开 Claude Code」：交给**系统默认浏览器**打开（不建专属窗口——宠物窗口是透明小窗，
+  // 不该承载常规网页浏览）。去向固定为 CLAUDE_OPEN_URL，渲染端传什么都不认（不让页面决定打开哪里）
+  ipcMain.on('pet:open-claude', () => {
+    shell.openExternal(CLAUDE_OPEN_URL).catch((error) => {
+      console.error('[dsh-pet-desktop-helper] open Claude Code failed:', error);
     });
-  };
-
-  // 去向由宿主形态决定（OPEN_TARGET，宿主按自身形态注入）：
-  //   desktop（宿主 = DSH 桌面应用）→ 用应用自注册的 dsh:// 协议把主窗口叫回前台：已运行则第二个实例
-  //     被单实例锁拦下、宿主收到 second-instance 后 focusPrimaryWindow()；未运行则协议直接把应用拉起来。
-  //     比 spawn 宿主 exe 干净——不必处理 ELECTRON_RUN_AS_NODE（spawn 继承它就成了 node 模式，起不了界面）
-  //     与安装路径探测。
-  //   claude（Claude Code 模式）→ 本地服务没有网页可看，改为打开 Claude Code 页面。
-  //   site（dsh web / 独立模式）→ 原行为：系统默认浏览器打开站点。
-  ipcMain.on('pet:open-site', (event, payload) => {
-    if (OPEN_TARGET === 'claude') {
-      shell.openExternal(CLAUDE_OPEN_URL).catch((error) => {
-        console.error('[dsh-pet-desktop-helper] open Claude Code failed:', error);
-      });
-      return;
-    }
-    const url = payload && typeof payload === 'object' ? String(payload.url || '') : '';
-    if (!/^https?:[/][/]/.test(url)) return;
-    if (OPEN_TARGET === 'desktop') {
-      // 协议未注册（绿色版 / 注册表被清）时回落成打开站点，至少不是"点了没反应"
-      shell.openExternal('dsh://open').catch((error) => {
-        console.error('[dsh-pet-desktop-helper] open dsh:// failed, falling back to site:', error);
-        openSite(url);
-      });
-      return;
-    }
-    openSite(url);
   });
 
   // 显示器热更新：分辨率/缩放变化、插拔屏、旋转都会让桌面几何失效。原先几何只在

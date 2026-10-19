@@ -1,5 +1,5 @@
 // Run after npm run build: DSH_PET_ELECTRON=/path/to/Electron npm run test:ui
-// Uses an isolated mock host: no DSH credentials, conversations or user config are read/written.
+// Uses an isolated mock host: no Claude Code session, conversations or user config are read/written.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -25,7 +25,6 @@ test(
         ...config.pets[0],
         size: 150,
         fixedEnabled: true,
-        balanceEnabled: false,
         whisperEnabled: false,
         workStatusEnabled: false,
         display: 'desktop',

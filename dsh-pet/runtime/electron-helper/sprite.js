@@ -1,5 +1,5 @@
 /**
- * dsh-pet desktop helper —— 宠物本体（PetSprite 类）。
+ * desk-pet desktop helper —— 宠物本体（PetSprite 类）。
  *
  * 播放 / 拖拽抛掷 / 跨窗碰撞 / 点击穿透 / 右键菜单 / 聊天弹窗 / 气泡渲染。
  * 事件联动（余额 / 碎碎念 / 广播 / 工作状态）不在此文件——见 events.js。
@@ -7,7 +7,7 @@
  */
 'use strict';
 
-// ---------- 单只宠物（行为与浏览器 PetCard 一致；纯逻辑来自 src/shared） ----------
+// ---------- 单只宠物（纯逻辑来自 src/shared） ----------
 class PetSprite {
   constructor(pet) {
     this.pet = pet; // 这只宠物的配置段（拍平后的成品实例，条目级字段已吹入：动画池/权重/周期）
@@ -106,15 +106,9 @@ class PetSprite {
     // 右键菜单（统一自绘组件，两端共用同一份：树+渲染均来自 shared-core）
     this.menuOpen = false; // 菜单开启期间强制整窗可交互（悬停菜单不触发穿透翻转）
     this.menuClose = null; // 当前菜单的 close()（打开时挂载，关闭后置空）
-    // 余额气泡
-    this.bubbleOn = false;
-    this.bubbleTimer = null;
     // 悬浮提示（替代原生 title 属性）：显隐 + 最近一次光标位置（**视口坐标**，见 renderTip）
     this.tipOn = false;
     this.tipCursor = null;
-    this.balanceView = null;
-    this.balanceWrap = false; // true = 当前余额气泡是不可用的「文字说明」（多行，需换行变体）
-    this.prevTick = 0;
     // 说话（碎碎念 / 命令气泡 / 对话回复三合一）：文本/配图由容器统一轮询 /state 后经
     // showWhisper 送进来，本精灵不再自己轮询（改造前的 whisperLoopTimer / broadcastLoopTimer 已删）
     this.whisperOn = false;
@@ -127,7 +121,7 @@ class PetSprite {
     // 两种形态由字段名区分，不靠嗅探——地址形态直接用、名称形态才按素材根拼路径。
     this.whisperUrl = '';
     // 工作状态联动（DSH 会话状态）：容器 1s 轮询 /state 递增 workTick → 本宠物按档位播动画+气泡。
-    // 气泡单槽优先级 终态任务 > whisper > balance > 非终态任务（见 renderBubble）；
+    // 气泡单槽优先级 终态任务 > whisper > 非终态任务（见 renderBubble）；
     // workStatusEnabled 未启用时完全免疫（与浏览器一致）
     this.workOn = false;
     this.workTimer = null;
@@ -269,7 +263,6 @@ class PetSprite {
     this.inputRegionMutation.disconnect();
     this.inputRegionResize.disconnect();
     this.inputRegionElements.clear();
-    if (this.bubbleTimer !== null) window.clearTimeout(this.bubbleTimer);
     if (this.whisperTimer !== null) window.clearTimeout(this.whisperTimer);
     if (this.workTimer !== null) window.clearTimeout(this.workTimer);
     if (this.chatClose) {
@@ -1366,26 +1359,21 @@ class PetSprite {
     e.preventDefault();
     this.stopThrow(); // 菜单弹出前停住飞行中的宠物
     this.stopMove(); // 菜单悬停期间宠物不漫游
-    // 桌面专属工具根项（打开网站 / 查看余额 / 碎碎念 / 对话 / 回到初始位置 / 重载配置）+ 共享菜单树（动作→分类→具体动画）
+    // 工具根项（打开 Claude Code / 碎碎念 / 对话 / 回到初始位置 / 隐藏 / 重载配置）+ 共享菜单树（动作→分类→具体动画）
     // 碎碎念/对话项无条件显示：手动触发不受 whisperEnabled 限制（该字段只影响自动周期轮询）
-    // 首项文案随宿主形态变（OPEN_TARGET）：宿主是 DSH 桌面应用时点是"唤起桌面应用窗口"，仍叫「打开网站」会误导
-    const tools = [{ label: OPEN_SITE_LABEL, action: 'open-site' }];
-    // 「查看余额」无条件显示（与浏览器端一致）：关了 balanceEnabled 的宠物也能点——手动请求不受开关限制
-    //（该开关只关自动轮询与档位动画），点了一定给答复。Claude Code 模式没有余额接口，不出这一项。
-    if (!CLAUDE_HOST) tools.push({ label: '查看余额', action: 'show-balance' });
-    tools.push(
+    const tools = [
+      { label: '打开 Claude Code', action: 'open-site' },
       { label: '碎碎念', action: 'whisper' },
       { label: '对话', action: 'chat' },
       { label: '回到初始位置', action: 'home' },
-      // 显示位置（仅网页/仅桌面/两者/都不）：改这只宠物的 display 配置 + 宿主重载生效。
-      // 与浏览器端注入的是**同一份**子菜单（shared 的 displayMenuBranch），两端文案/取值不会漂移。
-      // 为什么不就地关窗/开窗：桌面宠物共用一个 Electron 进程，窗口是进程启动时按 DSH_PET_PETS
-      // 一次性建的——就地增删窗口既改不了磁盘配置（下次启动又回来）也改不了窗口数量。
-      S.displayMenuBranch(),
-      // 改配置文件后免去回设置页点保存：请宿主重启桌面 Helper（全部桌面宠物窗口按最新配置重建）。
+      // 隐藏：把这只宠物的 display 改成 none + 宿主重载生效（恢复入口是托盘，文案里写明）。
+      // 为什么不就地关窗：桌面宠物共用一个 Electron 进程，窗口是进程启动时按 DSH_PET_PETS
+      // 一次性建的——就地关窗改不了磁盘配置（下次启动又回来）。
+      S.hideMenuLeaf(),
+      // 改配置文件后右键重载即可：请宿主重启桌面 Helper（全部桌面宠物窗口按最新配置重建）。
       // 放在最后：它是"重新加载"这类维护动作，与上面几个宠物互动项语义不同。
       { label: '重载配置', action: 'reload' },
-    );
+    ];
     const tree = tools.concat(S.buildMenuTree(this.animations));
     if (!tree.length) return;
     this.menuOpen = true;
@@ -1415,11 +1403,7 @@ class PetSprite {
     this.closeMenu();
     if (!leaf || typeof leaf !== 'object') return;
     if (leaf.action === 'open-site') {
-      if (window.petBridge) window.petBridge.openDshSite(ORIGIN); // 系统默认浏览器打开（等效 Ctrl+点击链接）
-      return;
-    }
-    if (leaf.action === 'show-balance') {
-      this.showBalanceFromMenu(); // 立即拉余额并展示（无需等 1s 触发轮询，展示路径与周期触发一致）
+      if (window.petBridge) window.petBridge.openClaudeCode(); // 系统默认浏览器打开 Claude Code 页面
       return;
     }
     if (leaf.action === 'whisper') {
@@ -1471,22 +1455,6 @@ class PetSprite {
     window.__dshPetDebug.menuOpen = false;
     this.syncInputBusy(); // 菜单关：若没有别的占用（拖拽/弹窗）则交还常规判定
     if (!this.inputBusy()) this.setInteractive(false);
-  }
-
-  // 「查看余额」菜单：POST 动作让 host 刷新余额（写进 S）。
-  // 结果**这里什么都不用做**：写叶子会让版本号变，挂着的长轮询那一拍立刻返回并展示
-  // （展示走 showBalanceNow/showBalanceNotice 同一路径）。
-  // 注意这里不再直接拉余额：数据只有一个出口（S），菜单只负责"让它刷新"。
-  // **不做 balanceEnabled 门控**（菜单项也无条件显示）：手动请求不受开关限制——开关只关自动轮询与档位动画，
-  // 关掉余额的宠物被点一次菜单也该看到数据（与浏览器端一致）。
-  showBalanceFromMenu() {
-    S.postAction(BALANCE_URL)
-      .then((ok) => {
-        if (!ok) console.warn('[dsh-pet] 菜单查看余额：刷新动作未成功');
-      })
-      .catch((e) => {
-        console.error('[dsh-pet] 菜单查看余额异常', e);
-      });
   }
 
   // 「碎碎念」菜单：POST 动作让 host 立即新生成一句（写进 S）。
@@ -1561,12 +1529,12 @@ class PetSprite {
     });
   }
 
-  // 「显示位置」菜单：改**这一只**宠物的 display（仅网页/仅桌面/两者/都不）—— 写它自己的配置，
-  // 再由宿主重载生效。取值直接来自菜单项（shared 的 displayMenuBranch），渲染端不做任何推导：
+  // 「隐藏」菜单：改**这一只**宠物的 display —— 写它自己的配置，
+  // 再由宿主重载生效。取值直接来自菜单项（shared 的 hideMenuLeaf），渲染端不做任何推导：
   // 当前状态以配置为准，推导只会多一处可能与真相不符的猜测（旧实现的 both→web 就是这种猜测）。
   // 为什么不在渲染端就地关窗/开窗：桌面宠物共用一个 Electron 进程，窗口是进程启动时按 DSH_PET_PETS
   // 一次性建的——就地增删窗口既改不了磁盘配置（宿主下次重载它又回来），也改不了窗口数量。
-  // 与 reloadDesktop 同一处境：选"仅网页/都不"时本进程就会在重载中被换掉，响应可能永远不回
+  // 与 reloadDesktop 同一处境：隐藏时本进程就会在重载中被换掉，响应可能永远不回
   // （宿主杀进程时回调地址已失效），故不 await、不重试，失败只记日志。
   setPetDisplay(display) {
     if (!display) return;
@@ -1580,19 +1548,17 @@ class PetSprite {
   }
 
   renderBubble() {
-    // 气泡单槽：同一时刻只显示一个（优先级：终态任务 > 碎碎念/对话 > 余额 > 非终态任务）。
+    // 气泡单槽：同一时刻只显示一个（优先级：终态任务 > 碎碎念/对话 > 非终态任务）。
     // 为什么终态任务不让位：完成/失败气泡只活 10s，被事件顶掉就彻底看不到了；非终态任务气泡
-    // 常驻（不设自动收起），让位 10s 零损失。与浏览器 src/client/pet.ts 的单槽优先级同一套。
+    // 常驻（不设自动收起），让位 10s 零损失。
     // 工作气泡与碎碎念同款弹窗样式：宽度自适应 + 自动换行（is-whisper：正常 white-space、宽随内容）
     // 配图标记交给 CSS：带图时取消 min-width（样式在 shared 的 MEME_BUBBLE_CSS，两端同一份）。
     // 图片 URL 与视频同规则：传 BASE 前缀（桌面是 file:// 页面，必须绝对地址）
     // 素材根同理（配图的归属与动画一致：pet/<素材根>-memes/ 独占 → 用户目录 → 包内）
     const workOn = !!(this.workOn && this.workText);
     const whisperOn = !!(this.whisperOn && this.whisperView);
-    const balanceOn = !!(this.bubbleOn && this.balanceView);
     const workTerminal = this.workState === 'success' || this.workState === 'error';
-    const slot =
-      workTerminal && workOn ? 'work' : whisperOn ? 'whisper' : balanceOn ? 'balance' : workOn ? 'work' : 'none';
+    const slot = workTerminal && workOn ? 'work' : whisperOn ? 'whisper' : workOn ? 'work' : 'none';
     // 配图两种形态二选一（host 判定层保证）：url 直接用那个完整地址，image 按素材根拼表情包路径。
     // 样式/class 两份共用（都在 shared 的 MEME_BUBBLE_CSS），只是 src 的来源不同。
     const whisperImg =
@@ -1601,14 +1567,10 @@ class PetSprite {
           ? S.createMemeImageFromUrl(this.whisperUrl)
           : S.createMemeImage(this.whisperImage, BASE, this.assetRoot)
         : null;
-    this.bubble.classList.toggle(
-      'is-whisper',
-      // 余额「文字说明」（不可用状态）同样套用紧凑变体：字号更小、宽度下限更窄，多行说明更紧凑
-      slot === 'whisper' || slot === 'work' || (slot === 'balance' && this.balanceWrap),
-    );
+    this.bubble.classList.toggle('is-whisper', slot === 'whisper' || slot === 'work');
     this.bubble.classList.toggle(S.MEME_BUBBLE_CLASS, !!whisperImg);
     if (slot === 'none') {
-      // 三者都没有可显示的内容：隐藏（不占位，也就不会挡住任何一层）
+      // 两者都没有可显示的内容：隐藏（不占位，也就不会挡住任何一层）
       this.bubble.classList.remove('is-on');
       window.__dshPetDebug.lastBubbleTitle = '';
       return;
@@ -1619,37 +1581,13 @@ class PetSprite {
       line.className = 'pet-bub-row';
       line.textContent = this.workText;
       this.bubble.appendChild(line);
-    } else if (slot === 'whisper') {
+    } else {
       // 配图（shared 生成的 <img> + 共用样式）：先看图再读话，符合"配图"的阅读顺序
       if (whisperImg) this.bubble.appendChild(whisperImg);
       const line = document.createElement('div');
       line.className = 'pet-bub-row';
       line.textContent = this.whisperView[0]?.text ?? '';
       this.bubble.appendChild(line);
-    } else {
-      const rows = this.balanceView;
-      const hasTier = rows.some((r) => r.role === 'tier');
-      if (hasTier) {
-        // deepseek 余额单行：余额（峰/谷）¥x — 档位字着色
-        const line = document.createElement('div');
-        line.className = 'pet-bub-row';
-        for (const r of rows) {
-          const span = document.createElement('span');
-          if (r.role === 'tier') span.className = 'pet-bub-tier pet-bub-tier-' + r.tier;
-          span.textContent = r.text;
-          line.appendChild(span);
-        }
-        this.bubble.appendChild(line);
-      } else {
-        for (const r of rows) {
-          const div = document.createElement('div');
-          if (r.role === 'error') div.className = 'pet-bub-err';
-          else if (r.role === 'sub') div.className = 'pet-bub-row pet-bub-sub';
-          else div.className = 'pet-bub-row';
-          div.textContent = r.text;
-          this.bubble.appendChild(div);
-        }
-      }
     }
     this.bubble.classList.add('is-on');
     window.__dshPetDebug.lastBubbleTitle = this.bubble.textContent.slice(0, 60);

@@ -1,15 +1,12 @@
-# 设置页浏览器回归
+# 桌面窗口运行时测试（macOS）
 
-在 `dsh-pet/` 包目录运行：
+在 `dsh-pet/` 包目录运行（先 `npm run build`）：
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm exec playwright install chromium
-npm run test:ui
+DSH_PET_ELECTRON=/path/to/Electron.app/Contents/MacOS/Electron npm run test:ui
 ```
 
-Linux CI 缺少系统库时用 `pnpm exec playwright install --with-deps chromium`。
+`desktop-macos.test.mjs` 用 Playwright 驱动真实的 Electron 桌面小窗：起一个隔离的临时宿主服务（只读包内默认配置与素材），校验原生几何、HiDPI 下的右键菜单与点击穿透恢复。不读取或修改用户的配置与对话记忆。
 
-测试用真实 React 和 Chromium 渲染设置页，拦截配置与模型接口，验证加载、失败重试、恢复默认与保存，以及中英文窄窗口布局。只访问临时本地服务，不读取或修改用户的 DSH 配置。与 `npm test` 的 Node 单元测试分开运行，普通插件安装不下载浏览器。
-
-可选设置 `DSH_PET_UI_ARTIFACTS` 为输出目录，保存布局截图。桌面 Electron 窗口、操作系统点击穿透和显示器缩放仍需另做运行时测试。
+只在 macOS 且设置了 `DSH_PET_ELECTRON` 时运行，其余平台自动跳过；与 `npm test` 的 Node 单元测试分开运行。

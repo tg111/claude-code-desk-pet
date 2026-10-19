@@ -16,10 +16,10 @@
  * 合并规则（唯一规则）：
  *   - 内置默认配置是唯一默认值来源（「代码里的配置绝对正确」）；
  *   - 覆盖文件写了 → 用自己的值；**没写 → 静默填内置默认值**（结构性常态，不告警——
- *     设置页写的用户层本就只含 pets + notificationsEnabled；文件宠物也可以写得很短）；
+ *     用户层往往只写了几个字段；文件宠物也可以写得很短）；
  *   - **对象字段也是整段替换**（`physics` / `eventsRefreshSec` / `whisperModel` … 都适用）：
  *     写了就整段用自己的，缺的子键**不会**从内置默认补回来——消费端各自兜底
- *     （如余额周期读不到就按 1800、碎碎念按 300）；
+ *     （如碎碎念周期读不到就按 300）；
  *   - **显式写了但非法**（类型/结构/白名单外）→ 告警 + 填内置默认值
  *     （同一 文件+字段 进程内只告警一次，避免每请求刷屏；保证返回绝不出现残缺/非法值）；
  *   - **例外：全局默认**（GLOBAL_DEFAULT_KEYS 那 10 个「用户级成本/偏好/环境/节奏」字段）——
@@ -31,8 +31,8 @@
  * 消费端契约：其他代码（路由/命令/碎碎念/对话/桌面）只消费 readAllConfig 的返回值，
  * 不做任何校验/兜底；浏览器与桌面通过 GET /dsh-pet-7340/config 拿到同一份成品。
  *
- * 本模块是 host 自包含实现（不 import src/shared —— DSH 单文件加载约束）；
- * 浏览器/桌面侧的对应纯逻辑（把成品拍平成渲染列表）在 src/shared/config.ts。
+ * 本模块是 host 自包含实现（不 import src/shared）；桌面渲染端的对应纯逻辑
+ * （把成品拍平成渲染列表）在 src/shared/config.ts。
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -47,7 +47,7 @@ const PET_DISPLAYS = ['web', 'desktop', 'both', 'none'] as const;
 export const PET_DISPLAY_SET: ReadonlySet<string> = new Set(PET_DISPLAYS);
 
 /** font.family 白名单（预设 id）——**必须与 src/shared/fonts.ts 的 FONT_PRESETS 保持一致**：
- *  host 不能 import src/shared（见文件头注释的 DSH 单文件加载约束），这里是那份清单的自包含副本，
+ *  host 不 import src/shared（见文件头注释），这里是那份清单的自包含副本，
  *  所以加/删字体预设时两边都要改。 */
 const FONT_FAMILY_SET: ReadonlySet<string> = new Set([
   'candy',
@@ -77,9 +77,7 @@ export const ID_FORBIDDEN = /[\\/:\x00-\x1f]/;
  *   - `whisperModel` / `chatModel`：碎碎念 / 对话用哪个模型 = 成本与能力偏好
  *   - `whisperImageEnabled` / `chatImageEnabled`：要不要把表情包清单附进请求 = token 成本
  *   - `chatImageLimit`：对话那张清单**最多几张**——同属 token 成本（清单每条消息都附）
- *   - `eventsRefreshSec`：多久调一次模型 / 拉一次余额 = 成本与节奏。注意它内部两个键的**消费端**
- *     不同：`.whisper` 按宠物所属条目读（种类可覆盖）；`.balance` 只读 main 条目
- *     （余额数据一份 + host 只有一个定时器，架构上给不了每种类一个周期）
+ *   - `eventsRefreshSec`：多久调一次模型 = 成本与节奏（`.whisper` 按宠物所属条目读，种类可覆盖）
  *   - `physics`：拖拽抛掷手感；`petCollision` 更是**跨宠物**行为（相撞按动量守恒弹开），
  *     按种类分在语义上站不住：两只不同种类的宠物相撞时用谁的系数？
  *   - `confineToScreen`：多屏是用户环境 / 使用习惯，不是宠物属性
@@ -165,12 +163,28 @@ export function userConfigUnparsable(paths: ConfigPaths): boolean {
 export interface ConfigPaths {
   /** 包内 assets/config.jsonc（内置默认，绝对正确） */
   defaultFile: string;
-  /** ~/.dsh/dsh-pet/main-config.jsonc（用户主配置，可编辑层；JSONC——允许注释） */
+  /** <数据目录>/dsh-pet/main-config.jsonc（用户主配置，可编辑层；JSONC——允许注释） */
   userFile: string;
-  /** 旧版路径 ~/.dsh/dsh-pet/main-config.json：读取回落 + 启动时迁移（见 migrateUserConfig） */
+  /** 旧版路径 <数据目录>/dsh-pet/main-config.json：读取回落 + 启动时迁移（见 migrateUserConfig） */
   legacyUserFile?: string;
-  /** ~/.dsh/dsh-pet/pet（文件宠物目录） */
+  /** <数据目录>/dsh-pet/pet（文件宠物目录） */
   petDir: string;
+}
+
+/**
+ * 配置路径集的**唯一**推导（宿主 apply 与 desk-pet 的 `--check` 共用，不再各写一份）。
+ * @param root 包根目录（构建产物里 = 包根；源码形态下 = `src/`）
+ * @param home 数据目录（DSH_HOME，desk-pet 默认 ~/.desk-pet）
+ */
+export function configPathsFor(root: string, home: string): ConfigPaths {
+  const userRoot = join(home, 'dsh-pet');
+  return {
+    defaultFile: join(root, 'assets', 'config.jsonc'),
+    // 主配置是 **JSONC**——与包内默认 config.jsonc 同名同格式（旧版 main-config.json 只读回落 + 启动迁移）
+    userFile: join(userRoot, 'main-config.jsonc'),
+    legacyUserFile: join(userRoot, 'main-config.json'),
+    petDir: join(userRoot, 'pet'),
+  };
 }
 
 /** 实际生效的用户层文件：优先 .jsonc；不存在则回落到旧的 .json（迁移前的老用户）；
@@ -281,8 +295,7 @@ function animationsValid(a: unknown): boolean {
       }
     }
   }
-  const balance = evEntries.balance;
-  return Array.isArray(balance) && balance.length > 0;
+  return true;
 }
 
 /** animationWeights 段校验（idle/turn/move 三个非负数字） */
@@ -368,8 +381,6 @@ function topFieldValid(key: string, value: unknown): boolean {
       const n = Number(value);
       return Number.isFinite(n) && n >= 0;
     }
-    case 'notificationsEnabled':
-      return typeof value === 'boolean';
     case 'whisperImageEnabled':
       return typeof value === 'boolean';
     case 'chatImageEnabled':
@@ -555,7 +566,6 @@ function mergePet(
     id,
     name,
     size: petNumber(p.size, base.size, 1, label, 'size', id),
-    balanceEnabled: petBool(p.balanceEnabled, base.balanceEnabled, label, 'balanceEnabled', id),
     whisperEnabled: petBool(p.whisperEnabled, base.whisperEnabled, label, 'whisperEnabled', id),
     workStatusEnabled: petBool(p.workStatusEnabled, base.workStatusEnabled, label, 'workStatusEnabled', id),
     fixedEnabled: petBool(p.fixedEnabled, base.fixedEnabled, label, 'fixedEnabled', id),
@@ -627,7 +637,7 @@ export function findPetInstance(
 
 /**
  * 保存用户层（PUT /config）：更新 main-config.jsonc，接受可编辑字段（pets + 全局开关：
- * notificationsEnabled / whisperImageEnabled / chatImageEnabled / confineToScreen + physics
+ * whisperImageEnabled / chatImageEnabled / confineToScreen + physics
  * + whisperModel / chatModel + chatMemoryRounds + chatImageLimit）。
  * 编辑语义：**非白名单顶层字段（whisperPrompt / eventsRefreshSec / memes 等）从
  * `existing`（当前磁盘上的用户文件原对象）原样透传保留**——
@@ -657,8 +667,6 @@ export function saveUserConfig(
       console.warn(`dsh-pet: pet「${id}」缺少 name，已按默认 ${id}（宠物 id）处理`);
       name = id;
     }
-    const balanceEnabled = pp.balanceEnabled;
-    if (typeof balanceEnabled !== 'boolean') return null;
     const whisperEnabled = pp.whisperEnabled;
     if (whisperEnabled !== undefined && typeof whisperEnabled !== 'boolean') return null;
     const workStatusEnabled = pp.workStatusEnabled;
@@ -679,7 +687,6 @@ export function saveUserConfig(
       id,
       name,
       size,
-      balanceEnabled,
       whisperEnabled,
       workStatusEnabled,
       fixedEnabled,
@@ -687,8 +694,6 @@ export function saveUserConfig(
       position: { corner, marginX, marginY },
     });
   }
-  const ne = o.notificationsEnabled;
-  if (ne !== undefined && typeof ne !== 'boolean') return null;
   const wie = o.whisperImageEnabled;
   if (wie !== undefined && typeof wie !== 'boolean') return null;
   const cie = o.chatImageEnabled;
@@ -728,7 +733,6 @@ export function saveUserConfig(
   // 白名单可编辑字段：pets 来自请求体，其余（四个全局开关 / physics / 两个模型 /
   // 对话历史条数）同样只在请求体**真的传了**时才写（未传则走下面的透传保留，不凭空造值）
   const outConfig: { pets: unknown[]; [key: string]: unknown } = { pets: out };
-  if (ne !== undefined) outConfig.notificationsEnabled = ne;
   if (wie !== undefined) outConfig.whisperImageEnabled = wie;
   if (cie !== undefined) outConfig.chatImageEnabled = cie;
   if (cts !== undefined) outConfig.confineToScreen = cts;
@@ -744,7 +748,6 @@ export function saveUserConfig(
   // 白名单字段只在「请求体传了」时才算白名单（已由上方写入）；未传时走这里透传磁盘旧值——
   // 否则整包调用的调用方漏传一个字段，就会把用户既有设置悄悄抹成默认。
   const bodyOwned = new Set(['pets']);
-  if (ne !== undefined) bodyOwned.add('notificationsEnabled');
   if (wie !== undefined) bodyOwned.add('whisperImageEnabled');
   if (cie !== undefined) bodyOwned.add('chatImageEnabled');
   if (cts !== undefined) bodyOwned.add('confineToScreen');

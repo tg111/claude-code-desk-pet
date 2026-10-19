@@ -5,19 +5,17 @@
  * ============================================================================
  *
  * 【作用】
- *   在 `npm publish` / `npm pack` 之前自动运行（由 package.json 的
- *   "prepack" 脚本触发），逐项检查插件包是否"可发布"。
- *   任何一项失败都会置 exit code 为 1，阻止发布一个坏包。
+ *   在 `npm pack` 之前自动运行（由 package.json 的 "prepack" 脚本触发），逐项检查包是否完整。
+ *   任何一项失败都会置 exit code 为 1。
  *
  * 【检查项】
- *   1. 必需文件是否存在（lib、类型声明、patch、对齐参数）
- *   2. 至少有待机动画的 thumb
- *   3. 原始 1200×1200 母版不得进 npm 包（体积超限，应放 GitHub Releases）
- *   4. client.js 是官方 bundle 形态（__ModuleLoader__.load + exports.apply）
- *   5. package.json 声明了 dsh.bundle 和 dsh.client（否则装不上）
- *   6. 表情包图片确实随包发布（files 白名单含 assets/memes 且目录里有 png；
+ *   1. 必需文件是否存在（lib/standalone.js、桌面运行壳各文件）
+ *   2. 至少有待机动画
+ *   3. 原始 1200×1200 母版不得进包（体积超限，应放 GitHub Releases）
+ *   4. 表情包图片确实随包发布（files 白名单含 assets/memes 且目录里有 png；
  *      配图功能只读包内 assets/memes，漏发即功能整体失效），并核对 memes 键与图片对齐
- *   7. 包总大小 < 200MB（自设软上限，防误塞母版；npm 硬上限远更大）
+ *   5. 构建产物不得引入未声明的外部 helper（@oxc-project/runtime）
+ *   6. 包总大小 < 200MB（自设软上限，防误塞母版）
  *
  * ============================================================================
  */
@@ -68,11 +66,7 @@ const stripJsonc = (s) => {
 
 // ---- 1. 必需文件存在性 ----
 const required = [
-  'lib/index.js', // 宿主半侧
-  'lib/client.js', // 浏览器半侧
-  'lib/types/index.d.ts', // 宿主类型声明
-  'lib/types/client/index.d.ts', // 客户端类型声明
-  'cordis.patch.yml', // bundle patch（挂载声明）
+  'lib/standalone.js', // desk-pet 进程（bin）
   'runtime/electron-helper/main.js', // 桌面模式 Electron 主进程
   'runtime/electron-helper/pointer-target.js', // 桌面模式点击穿透兜底判定（main.js require，缺了会启动即崩）
   'runtime/electron-helper/host-liveness.js', // 桌面模式宿主存活判定（main.js require，缺了会启动即崩）
@@ -104,23 +98,9 @@ if (originals.length > 0)
   fail(`original masters must not ship in npm package: ${originals.join(', ')} (move them to GitHub Releases)`);
 else ok('no original masters in assets/');
 
-// ---- 4. client.js 必须是官方 bundle 形态（含插件三件套导出） ----
-const client = readFileSync(join(ROOT, 'lib', 'client.js'), 'utf8');
-client.includes('__ModuleLoader__.load')
-  ? ok('client bundle shell OK')
-  : fail('client.js missing __ModuleLoader__.load');
-const exportsPlugin =
-  /exports\.(apply|inject|name)/.test(client) || /module\.exports\s*=\s*\{[^}]*apply[^}]*inject[^}]*name/.test(client);
-exportsPlugin ? ok('client exports apply/inject/name') : fail('client.js missing apply/inject/name exports');
-
-// ---- 5. package.json 必须声明 bundle + client ----
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
-if (pkg.dsh?.bundle?.patch) ok('dsh.bundle.patch declared');
-else fail('package.json missing dsh.bundle.patch');
-if (pkg.dsh?.client?.platform === 'web') ok('dsh.client.web declared');
-else fail('package.json missing dsh.client platform web');
 
-// ---- 6. 表情包图片必须随包发布（配图功能的素材源） ----
+// ---- 4. 表情包图片必须随包发布（配图功能的素材源） ----
 // 坑：scripts/prepare.js 每次发布都会用**硬编码白名单覆盖** package.json 的 files，
 // 只在 package.json 里加一行是无效的 → 这里显式断言，防止再次静默漏发。
 const memesDir = join(ROOT, 'assets', 'memes');
@@ -148,7 +128,7 @@ try {
   console.log(`[prepack-check] note: 跳过 memes 键对齐核对（config.jsonc 解析失败：${e.message}）`);
 }
 
-// ---- 7. 包总大小估算（排除 node_modules/.git/脚本/素材源目录/README预览GIF） ----
+// ---- 6. 包总大小估算（排除 node_modules/.git/脚本/素材源目录/README预览GIF） ----
 let total = 0;
 const walk = (dir) => {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -167,24 +147,22 @@ const mb = (total / 1e6).toFixed(1);
 if (total > 200e6) fail(`package too large: ${mb}MB (limit 200MB)`);
 else ok(`package size ${mb}MB`);
 
-// ---- 8. 构建产物不得引入未声明的外部 helper（@oxc-project/runtime） ----
-// rolldown 在 target es2020 下会为「带初始化器的类字段」这类降级语法产出
-// `import _defineProperty from "@oxc-project/runtime/helpers/defineProperty"`；而该包既不在本包
-// dependencies 里、也不随包发布（宿主 DSH 的安装树里同样没有）→ DSH 加载插件树时直接
-// ERR_MODULE_NOT_FOUND，整个 profile 起不来（issue #59 改动踩过一次，见 src/host/helper-process.ts
-// 的约定：类字段一律 `declare` + 构造器赋值，避免降级出外部 helper）。
+// ---- 5. 构建产物不得引入未声明的外部 helper（@oxc-project/runtime） ----
+// rolldown 在较低 target 下会为「带初始化器的类字段」这类降级语法产出
+// `import _defineProperty from "@oxc-project/runtime/helpers/defineProperty"`；而该包不在本包
+// dependencies 里 → 运行时 ERR_MODULE_NOT_FOUND（tsdown.config.mjs 用 es2022 目标避开）。
 const OXC_RUNTIME = '@oxc-project/runtime';
-const oxcBundles = ['lib/index.js', 'lib/client.js'].filter((f) => {
+const oxcBundles = ['lib/standalone.js'].filter((f) => {
   const p = join(ROOT, f);
   return existsSync(p) && readFileSync(p, 'utf8').includes(OXC_RUNTIME);
 });
 if (oxcBundles.length > 0)
   fail(
     `bundle imports undeclared helper ${OXC_RUNTIME} (${oxcBundles.join(', ')}) — ` +
-      '类字段改用 declare + 构造器赋值（见 src/host/helper-process.ts 的约定）',
+      '检查 tsdown.config.mjs 的 target（需 es2022）',
   );
 else ok(`no undeclared ${OXC_RUNTIME} import in bundles`);
 
 // ---- 汇总 ----
-if (process.exitCode) console.error('\n[prepack-check] fix the failures above before publishing.');
-else console.log('\n[prepack-check] all checks passed — ready to pack/publish.');
+if (process.exitCode) console.error('\n[prepack-check] fix the failures above before packing.');
+else console.log('\n[prepack-check] all checks passed — ready to pack.');

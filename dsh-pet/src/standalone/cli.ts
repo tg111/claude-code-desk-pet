@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * Claude Code 桌宠入口（`desk-pet`，原 dsh-pet 独立模式）—— 不需要 DSH，跟着 Claude Code 干活。
+ * desk-pet 入口 —— Claude Code 的桌面宠物进程。
  *
  * 它把三件事串起来（每一步都复用插件自己的实现，没有第二份业务逻辑）：
  *   1. `./context` 造一个伪 Cordis ctx，把插件的宿主半边（`src/host/index.ts` 的 `apply`）跑起来；
  *   2. `./server` 起一个真正的 `node:http` 服务，把 `apply` 注册的 prefix handler 接上去
  *      （路由表仍然只有插件那一份）；
  *   3. 插件自己的 `launchHelper` 因此照常探测 Electron、按配置拉起透明置顶小窗，
- *      并与宿主经 bridge 管道通信 —— 与 DSH 内运行完全同一条路径。
+ *      并与宿主经 bridge 管道通信。
  *
  * Claude Code 接入（本文件之外各一个模块）：
  *   - `./claude-code`：`POST /claude-code/hook` 收 hook 转发脚本发来的事件，翻译成插件的
@@ -21,8 +21,6 @@
  *   desk-pet --port 3081
  *   desk-pet --check                  # 只体检，不开窗口
  *
- * 边界：余额依赖 DSH 的服务商接口，Claude Code 模式下不可用（菜单不出该项）；
- * 浏览器内浮层需要 DSH 网页，这里只有桌面透明小窗。
  */
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -43,7 +41,7 @@ import {
 import { claudePetHome, configPathsFor, describePets, isDesktopVisible, parseArgs, USAGE } from './options';
 import { listenStandaloneServer } from './server';
 
-/** 启动独立模式：先起服务拿到端口，再 `apply`（插件据此拼桌面 Helper 的 configUrl） */
+/** 启动：先起服务拿到端口，再 `apply`（宿主据此拼桌面 Helper 的 configUrl） */
 async function run(logger: StandaloneLogger, options: { port: number }): Promise<void> {
   const home = dshHomeDir();
   const paths = configPathsFor(packageRoot, home);
@@ -75,7 +73,6 @@ async function run(logger: StandaloneLogger, options: { port: number }): Promise
     routes,
     llm,
     model: { provider: CLAUDE_CODE_PROVIDER, model },
-    openTarget: 'claude',
   });
   // hook 入口先于 apply 注册：exact 路由，与插件的 /dsh-pet-7340 前缀互不相干
   routes.push(createClaudeHookRoute(context.emit, logger));
@@ -158,9 +155,8 @@ async function run(logger: StandaloneLogger, options: { port: number }): Promise
     `  配置        ${configSource}`,
     `  宠物        ${describePets(pets)}`,
     desktopVisible.length === 0
-      ? '  桌面小窗    0 只：display 需要 desktop 或 both 才会出现透明小窗（服务仍在运行）'
+      ? '  桌面小窗    0 只（宠物都被隐藏了：托盘里勾选即可恢复；服务照常接收 hook）'
       : `  桌面小窗    ${desktopVisible.length} 只`,
-    '  不可用      余额（Claude Code 没有余额接口）',
     '  退出        托盘菜单「退出桌宠」、Ctrl+C，或 POST /shutdown',
     '',
   ]) {

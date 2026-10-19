@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * start-desktop.mjs —— 本地开发/手动启动桌面 Helper（不经 DSH 宿主拉起）。
+ * start-desktop.mjs —— 本地开发/手动启动桌面 Helper（不经 desk-pet 进程拉起，直连一个已在跑的宿主 HTTP 服务）。
  *
  * 用法：
  *   node scripts/start-desktop.mjs [configUrl]
  *
  * 环境变量（与宿主拉起时一致）：
  *   DSH_PET_CONFIG_URL / DSH_PET_SCALE / DSH_PET_ELECTRON_PATH
- * 其余端点（thumb/balance/trigger/notify/pic/font）由 renderer 从 configUrl 推导。
+ * 其余端点（thumb/state/pic/font）由 renderer 从 configUrl 推导。
  *
  * 示例（对着一台已跑 dsh web 的机器）：
  *   node scripts/start-desktop.mjs http://127.0.0.1:3080/dsh-pet-7340/config
@@ -36,7 +36,9 @@ const candidates = [
   process.env.DSH_PET_ELECTRON_PATH,
   process.env.ELECTRON_PATH,
   join(
-    process.env.DSH_HOME || join(process.env.USERPROFILE || process.env.HOME || '', '.dsh'),
+    process.env.DSH_HOME ||
+      process.env.DESK_PET_HOME ||
+      join(process.env.USERPROFILE || process.env.HOME || '', '.desk-pet'),
     'electron',
     electronRel,
   ),

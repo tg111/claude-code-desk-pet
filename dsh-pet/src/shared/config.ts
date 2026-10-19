@@ -11,9 +11,6 @@ import type { Animations, FontConfig, ModelSelection, Pet, PetDisplay, PhysicsPa
 /** 显示位置白名单 */
 export const PET_DISPLAYS: PetDisplay[] = ['web', 'desktop', 'both', 'none'];
 
-/** 该宠物是否参与浏览器 overlay 渲染 */
-export const isWebVisible = (display: PetDisplay): boolean => display === 'web' || display === 'both';
-
 /** 该宠物是否参与桌面模式（Electron 透明窗）渲染 */
 export const isDesktopVisible = (display: PetDisplay): boolean => display === 'desktop' || display === 'both';
 

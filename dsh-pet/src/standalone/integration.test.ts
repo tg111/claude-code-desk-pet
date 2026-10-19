@@ -1,10 +1,10 @@
 /**
  * 端到端契约：伪 ctx + **真实 apply** + 真实 `node:http` 服务。
  *
- * 这一层回答"独立模式到底有没有把插件自己的宿主半边跑起来"，并钉住三件事：
- *   1. `apply` 注册的路由前缀确实被独立服务接管 —— 只有一份路由表，没有第二套实现；
- *   2. 不依赖包内素材的端点与 DSH 内同形（`/state`、`/models`、`/config/meta` 的路径口径）；
- *   3. 路径安全与"配置不可达"的口径经**真实 HTTP** 仍然成立（独立服务不重写 URL、不吞异常）。
+ * 这一层回答"desk-pet 到底有没有把宿主半边跑起来"，并钉住三件事：
+ *   1. `apply` 注册的路由前缀确实被服务接管 —— 只有一份路由表，没有第二套实现；
+ *   2. Claude Code hook 经**真实 HTTP** 进来 → 翻译 → 事件总线 → 工作状态写进 `/state`（整条链路）；
+ *   3. 路径安全与"配置不可达"的口径经真实 HTTP 仍然成立（服务不重写 URL、不吞异常）。
  *
  * 覆盖范围的限制与 `routes.test.ts` 相同：源码形态下包根解析成 `<pkg>/src`，
  * 包内 `assets/config.jsonc` 不可达 → `readAllConfig` 必抛。因此这里不断言"成品配置"，
@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import { packageRoot } from '../host/helper-process.ts';
 import { apply } from '../host/index.ts';
 import { createStandaloneContext, type RegisteredRoute, type StandaloneLogger } from './context.ts';
-import { configPathsFor } from './options.ts';
+import { CLAUDE_HOOK_PATH, createClaudeHookRoute } from './claude-code.ts';
 import { listenStandaloneServer, type StandaloneServer } from './server.ts';
 
 /** 静默日志器（插件仍会往 console 打少量 warn，那是它自己的诊断，这里不拦） */
@@ -46,6 +46,8 @@ before(async () => {
   const routes: RegisteredRoute[] = [];
   const portRef = { value: 0 };
   const created = createStandaloneContext({ port: () => portRef.value, logger: silent, routes });
+  // 与 CLI 同一个顺序：hook 入口先于 apply 注册
+  routes.push(createClaudeHookRoute(created.emit, silent));
   const listening = await listenStandaloneServer({
     routes,
     logger: silent,
@@ -83,41 +85,68 @@ async function get(path: string): Promise<{ status: number; text: string; json: 
 describe('插件宿主半边在独立模式下跑起来了', () => {
   test('apply 注册了插件自己的路由前缀（独立模式不自己写路由表）', () => {
     const routes = context?.routes ?? [];
-    assert.equal(routes.length, 1, '当前插件只注册一条 prefix 路由；多出来的注册要在这里显式确认');
-    assert.equal(routes[0]?.kind, 'prefix');
-    assert.equal(routes[0]?.path, '/dsh-pet-7340');
-    assert.equal(typeof routes[0]?.handler, 'function');
+    assert.equal(routes.length, 2, 'hook 入口 + 宿主的一条 prefix 路由；多出来的注册要在这里显式确认');
+    assert.equal(routes[0]?.path, CLAUDE_HOOK_PATH);
+    assert.equal(routes[1]?.kind, 'prefix');
+    assert.equal(routes[1]?.path, '/dsh-pet-7340');
+    assert.equal(typeof routes[1]?.handler, 'function');
   });
 
-  test('/state 与 DSH 内同形（独立模式没有任何会话事件 → 叶子保持初始值）', async () => {
+  test('/state 初始形状（还没有任何 hook 事件 → 叶子保持初始值）', async () => {
     const response = await get('/dsh-pet-7340/state');
     assert.equal(response.status, 200);
     const body = response.json() as {
       sections: Record<string, { counter: number; data: unknown }>;
       pets: Record<string, unknown>;
     };
-    assert.deepEqual(Object.keys(body.sections).sort(), ['balance', 'config', 'notify', 'workStatus']);
-    assert.equal(body.sections.balance?.counter, 0);
-    assert.equal(body.sections.balance?.data, null);
+    assert.deepEqual(Object.keys(body.sections).sort(), ['config', 'workStatus']);
+    assert.equal(body.sections.workStatus?.counter, 0);
+    assert.equal(body.sections.workStatus?.data, null);
     assert.equal(body.sections.config?.counter, 0, '配置变更信号也没人写过');
     assert.deepEqual(body.pets, {});
   });
+});
 
-  test('/models 是空清单（独立模式没有 llm 服务，但不报错、不静默失败）', async () => {
-    const response = await get('/dsh-pet-7340/models');
-    assert.equal(response.status, 200);
-    assert.deepEqual(response.json(), { providers: [] });
+describe('Claude Code hook → /state（整条链路）', () => {
+  /** POST 一条 hook 载荷，返回响应 */
+  const hook = async (payload: unknown): Promise<{ status: number; json: unknown }> => {
+    const response = await fetch(`${base}${CLAUDE_HOOK_PATH}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return { status: response.status, json: await response.json() };
+  };
+  const workStatus = async (): Promise<unknown> =>
+    ((await get('/dsh-pet-7340/state')).json() as { sections: { workStatus: { data: unknown } } }).sections.workStatus
+      .data;
+
+  test('提交消息 → 思考；TodoWrite → 工作 + 任务文案；权限确认 → 等待；Stop → 成功', async () => {
+    assert.deepEqual(await hook({ hook_event_name: 'UserPromptSubmit', session_id: 'it' }), {
+      status: 200,
+      json: { ok: true, events: 1 },
+    });
+    assert.deepEqual(await workStatus(), { state: 'thinking', task: null });
+    await hook({
+      hook_event_name: 'PreToolUse',
+      session_id: 'it',
+      tool_name: 'TodoWrite',
+      tool_input: { todos: [{ content: '写集成测试', status: 'in_progress' }] },
+    });
+    assert.deepEqual(await workStatus(), { state: 'working', task: '写集成测试' });
+    await hook({ hook_event_name: 'Notification', session_id: 'it', notification_type: 'permission_prompt' });
+    assert.deepEqual(await workStatus(), { state: 'waiting', task: '写集成测试' });
+    await hook({ hook_event_name: 'Stop', session_id: 'it' });
+    assert.equal(((await workStatus()) as { state: string }).state, 'success');
+    // 会话结束 → 回空闲（终态不等它自己过期）
+    await hook({ hook_event_name: 'SessionEnd', session_id: 'it' });
+    assert.deepEqual(await workStatus(), { state: null, task: null });
   });
 
-  test('/config/meta 的路径口径与 options.configPathsFor 完全一致（镜像不得漂移）', async () => {
-    const response = await get('/dsh-pet-7340/config/meta');
-    assert.equal(response.status, 200);
-    const meta = response.json() as { user: string; default: string; animations: string };
-    const paths = configPathsFor(packageRoot, home);
-    // 这三条就是独立模式体检（--check）所依赖的推导；插件改了路径而 options.ts 没跟，这里会红
-    assert.equal(meta.user, paths.userFile);
-    assert.equal(meta.default, paths.defaultFile);
-    assert.equal(meta.animations, join(home, 'dsh-pet', 'main-animation'));
+  test('非 POST → 405；坏 JSON → 400（转发脚本出错也不会把服务带崩）', async () => {
+    assert.equal((await get(CLAUDE_HOOK_PATH)).status, 405);
+    const bad = await fetch(`${base}${CLAUDE_HOOK_PATH}`, { method: 'POST', body: '{not json' });
+    assert.equal(bad.status, 400);
   });
 });
 

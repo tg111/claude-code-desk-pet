@@ -6,7 +6,7 @@
  * 用假 ctx.llm.stream 驱动（不碰真服务商、不联网）：按 provider 决定这次是抛错、返回空流还是正常文本，
  * 并记录每次调用的 provider/model——回落的顺序与次数就是本文件要钉的不变式。
  *
- * 另外钉住调用形状：每次调用都带调用身份 sessionId；「没拿到正文」时报流终止块里的真实原因。
+ * 另外钉住：每次调用都带上系统提示词与超时信号；「没拿到正文」时报流终止块里的真实原因。
  *
  * 跑法：node --experimental-strip-types --test src/host/model-fallback.test.ts
  */
@@ -15,7 +15,6 @@ import assert from 'node:assert/strict';
 
 import { generateWhisper } from './whisper.ts';
 import { generateChat } from './chat.ts';
-import { PET_CALL_IDENTITY } from './llm-call.ts';
 import type { ModelRef } from './model-selection.ts';
 
 /** 一次调用的行为：ok = 正常出文本；throw = 流里抛错；empty = 空流且无终止块；fail = 流以 error 终止且无正文 */
@@ -27,7 +26,7 @@ const CURRENT: ModelRef = { provider: 'current', model: 'main-model' };
 /** 造一个假 ctx：currentSelection 返回 current（'throw' = 抛错），llm.stream 按 provider 决定行为 */
 function fakeCtx(current: ModelRef | 'throw', behavior: Record<string, Behavior>) {
   const calls: ModelRef[] = [];
-  /** 每次调用的完整参数（含 sessionId） */
+  /** 每次调用的完整参数 */
   const options: Record<string, unknown>[] = [];
   const ctx = {
     agentDefaultModel: {
@@ -37,8 +36,6 @@ function fakeCtx(current: ModelRef | 'throw', behavior: Record<string, Behavior>
       },
     },
     llm: {
-      // 声明"无 reasoning 元数据"：supportsReasoningOff 返回 false，不附加 reasoningEffort
-      resolveModelInfo: async () => ({}),
       stream: (o: ModelRef) => {
         calls.push({ provider: o.provider, model: o.model });
         options.push(o as unknown as Record<string, unknown>);
@@ -140,22 +137,15 @@ describe('generateChat —— 同一套回落规则（chatModel）', () => {
   });
 });
 
-describe('调用形状 —— 调用身份与真实失败原因', () => {
-  test('对话调用带调用身份 sessionId', async () => {
-    const { ctx, options } = fakeCtx(CURRENT, { current: 'ok' });
-    await generateChat(ctx, '人设', [], '在吗', [], undefined);
-    assert.equal(options.length, 1);
-    assert.equal(options[0].sessionId, PET_CALL_IDENTITY);
-  });
-
-  test('碎碎念调用带同一身份，回落两次也不换值', async () => {
+describe('调用形状 —— 提示词、超时与真实失败原因', () => {
+  test('每次调用都带系统提示词与超时信号，回落时同样带上', async () => {
     const { ctx, options } = fakeCtx(CURRENT, { configured: 'empty', current: 'ok' });
     await generateWhisper(ctx, '人设', undefined, CONFIGURED);
     assert.deepEqual(
-      options.map((o) => o.sessionId),
-      [PET_CALL_IDENTITY, PET_CALL_IDENTITY],
-      '回落两次也必须用同一个身份',
+      options.map((o) => o.system),
+      ['人设', '人设'],
     );
+    assert.ok(options.every((o) => o.signal instanceof AbortSignal));
   });
 
   test('流以 error 终止且无正文 → 报终止块里的真实原因', async () => {

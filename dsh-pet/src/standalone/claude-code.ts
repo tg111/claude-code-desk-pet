@@ -1,11 +1,9 @@
 /**
  * Claude Code hook → 插件会话事件的翻译层（纯逻辑 + 一条路由，零业务分支）。
  *
- * 为什么是「翻译」而不是另写一套工作状态：插件的宿主半边早已把 DSH 的 `session/event`
- * 压缩成工作状态（`host/work-status.ts`）与通知帧（`host/notify-events.ts`），还带着会话聚合、
- * 终态过期、任务详情文案这些细节。Claude Code 的 hook 在语义上与那几类事件一一对应，
- * 所以这里只把 hook 载荷改写成**同形状**的事件，经伪 ctx 的事件总线（`./context` 的 `emit`）
- * 投进去 —— 档位、气泡、文案与 DSH 内运行完全同一条路径。
+ * 为什么是「翻译」而不是直接在这里算档位：宿主半边（`host/work-status.ts`）只认一种
+ * `session/event` 形状，并带着会话聚合、终态过期、任务详情文案这些细节。这里只把 hook 载荷
+ * 改写成那种形状，经伪 ctx 的事件总线（`./context` 的 `emit`）投进去，聚合逻辑只有一份。
  *
  * 对应关系（左 = Claude Code hook_event_name，右 = 插件消费的 session/event）：
  *   UserPromptSubmit                  → turn/start                 思考
@@ -22,8 +20,7 @@
  * 其余（SessionStart / SubagentStop / PreCompact …）不切动画：SessionStart 只用来拉起本服务
  * （见插件的 hook 转发脚本），子代理的工具调用照常走 PreToolUse，父对话的回合由 Stop 收尾。
  *
- * 子代理（载荷带 `agent_id`）：会话头标 `origin: 'subagent'`，通知侧的会话门据此不弹
- * （与 DSH 子代理同一判据）；工作状态仍记在同一个 session_id 上 —— 父对话确实还在干活。
+ * 子代理的工具调用同样带父对话的 session_id，照常记成「工作」—— 父对话确实还在干活。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
@@ -35,17 +32,16 @@ export const CLAUDE_HOOK_PATH = '/claude-code/hook';
 /** 单条 hook 载荷的大小上限：tool_input / tool_response 可能很大（整份文件内容），只读够用的部分 */
 const MAX_BODY_BYTES = 1024 * 1024;
 
-/** 序列化后的工具参数上限（只给通知侧解析 AskUserQuestion 用，没必要搬整份文件内容） */
+/** 序列化后的工具参数上限（没必要把整份文件内容搬进事件） */
 const MAX_ARGUMENTS_CHARS = 64 * 1024;
 
-/** 插件里的「问用户选择题」工具名（`work-status.ts` / `notify-events.ts` 按它判 waiting） */
+/** 宿主里的「问用户选择题」工具名（`host/work-status.ts` 按它判 waiting） */
 const USER_QUESTION_TOOL = 'ask_user_question';
 
 /** Claude Code hook 载荷里本模块读取的字段（其余原样忽略；全部宽松读取） */
 export interface ClaudeHookPayload {
   hook_event_name?: unknown;
   session_id?: unknown;
-  agent_id?: unknown;
   tool_name?: unknown;
   tool_input?: unknown;
   notification_type?: unknown;
@@ -57,7 +53,7 @@ export interface ClaudeHookPayload {
 
 /** 插件 `ctx.on('session/event', (session, event) => …)` 的两个实参 */
 export interface TranslatedSessionEvent {
-  session: { id: string; header: { id: string; origin?: 'subagent' } };
+  session: { id: string; header: { id: string } };
   event: { type: string; seq: number; data?: Record<string, unknown> };
 }
 
@@ -72,7 +68,7 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-/** 工具参数 → JSON 字符串（插件按 DSH 口径把 arguments 当原始 JSON 解析）；过大则截成空对象 */
+/** 工具参数 → JSON 字符串（事件里的 arguments 是原始 JSON 串）；过大则截成空对象 */
 function argumentsOf(input: unknown): string {
   try {
     const json = JSON.stringify(input ?? {});
@@ -101,9 +97,7 @@ export function translateClaudeHook(payload: ClaudeHookPayload): TranslatedSessi
   if (!payload || typeof payload !== 'object') return [];
   const name = text(payload.hook_event_name);
   const sessionId = text(payload.session_id) || 'claude-code';
-  const header: TranslatedSessionEvent['session']['header'] = { id: sessionId };
-  if (text(payload.agent_id)) header.origin = 'subagent';
-  const session = { id: sessionId, header };
+  const session = { id: sessionId, header: { id: sessionId } };
   const out: TranslatedSessionEvent[] = [];
   const push = (type: string, data?: Record<string, unknown>): void => {
     out.push({ session, event: { type, seq: nextSeq(), ...(data ? { data } : {}) } });

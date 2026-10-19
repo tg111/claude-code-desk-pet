@@ -1,11 +1,11 @@
-# dsh-pet 对外 HTTP 接口一览
+# desk-pet 对外 HTTP 接口一览
 
-dsh-pet 的宿主半侧向 DSH 自己的 Web 服务注册了**一条前缀路由** `/dsh-pet-7340`，浏览器端、
-桌面端、设置页与第三方插件全都访问同一份实现。本文只做**功能预览**（接口名 + 一句话），
+`desk-pet` 进程在本机起一个 HTTP 服务，宿主半边在上面注册**一条前缀路由** `/dsh-pet-7340`，
+桌面渲染端与第三方脚本访问的是同一份实现。本文只做**功能预览**（接口名 + 一句话），
 完整契约——参数、响应体、字段含义、错误码与示例——见根目录的 [`openapi.yaml`](openapi.yaml)。
 
-- **基址**：`http://127.0.0.1:<port>/dsh-pet-7340`，`<port>` 是 DSH Web 服务实际监听的端口；Claude Code 模式（`desk-pet` 进程）下是桌宠自己的服务端口，见 `~/.desk-pet/server.json`（默认 3080）。
-  该模式另有一个 `POST /claude-code/hook`（不在前缀下），接收 Claude Code hook 载荷，由插件的转发脚本调用
+- **基址**：`http://127.0.0.1:<port>/dsh-pet-7340`，`<port>` 见 `~/.desk-pet/server.json`（默认 3080，被占用则顺延）
+- 另有一个 `POST /claude-code/hook`（不在前缀下）：接收 Claude Code 的 hook 载荷，由插件的转发脚本调用
 - **只监听 127.0.0.1，且没有鉴权**：任何能访问本机该端口的进程都能调用，请勿转发到公网
 
 ---
@@ -16,15 +16,14 @@ dsh-pet 的宿主半侧向 DSH 自己的 Web 服务注册了**一条前缀路由
 | --- | --- |
 | `GET /dsh-pet-7340/state` | **轮询唯一数据源**：所有状态位都在这里；带 `?since=&timeout=` 可长轮询 |
 | `GET /dsh-pet-7340/config` | 读合并后的成品配置（内置默认 + 用户层，字段已填满） |
-| `GET /dsh-pet-7340/config/meta` | 配置文件路径、各类数据落盘位置、卸载该用哪个 profile |
-| `GET /dsh-pet-7340/models` | 可用服务商与模型清单（与 DSH 自己的模型选择器同源） |
+| `GET /dsh-pet-7340/models` | 可选模型清单（`claude-code` 服务商 + `haiku` / `sonnet` / `opus` 别名） |
 | `GET /dsh-pet-7340/chat?pet=` | 读某只桌宠最近的对话记忆窗口 |
 
 ## 二、让桌宠做事
 
 | 接口 | 功能 |
 | --- | --- |
-| `POST /dsh-pet-7340/whisper?pet=` | 让桌宠**生成**一句碎碎念（走当前模型） |
+| `POST /dsh-pet-7340/whisper?pet=` | 让桌宠**生成**一句碎碎念（走 `claude -p`） |
 | `POST /dsh-pet-7340/broadcast?pet=` | **第三方投喂**：把外部给定的文本写进气泡（不生成，只搬运）；配图（`image` 池内名 / `url` 自带地址）、时长、动画联动可选 |
 | `POST /dsh-pet-7340/bubble/clear?pet=` | **清空气泡**：提前收起说话气泡（只动气泡，不动动画） |
 | `POST /dsh-pet-7340/anim?pet=` | **点播动画**：播池内名字（同右键「动作」菜单）或第三方自带的 `url`；回 `playbackId` |
@@ -33,7 +32,6 @@ dsh-pet 的宿主半侧向 DSH 自己的 Web 服务注册了**一条前缀路由
 | `POST /dsh-pet-7340/chat?pet=` | 对桌宠说一句话并生成回复，同时写入对话记忆 |
 | `POST /dsh-pet-7340/position?pet=` | **位置控制**：挪到归一化坐标，`mode` = 直接/弹簧/直线；不碰动画 |
 | `POST /dsh-pet-7340/throw?pet=` | **原生抛掷**：给桌宠一个初速度让它飞出去（`angle` 度、`power` 倍率） |
-| `POST /dsh-pet-7340/balance` | 立即刷新一次余额 |
 | `POST /dsh-pet-7340/reload` | 重载桌面端（重启桌面宠物进程，按最新配置重建窗口） |
 
 ## 三、改配置
@@ -41,7 +39,7 @@ dsh-pet 的宿主半侧向 DSH 自己的 Web 服务注册了**一条前缀路由
 | 接口 | 功能 |
 | --- | --- |
 | `PUT /dsh-pet-7340/config` | 保存用户层配置（白名单重建，用户手写的精调字段会保留） |
-| `POST /dsh-pet-7340/pet-display` | **改单只宠物的显示位置**（`web` / `desktop` / `both` / `none`），只传 `{ id, display }` |
+| `POST /dsh-pet-7340/pet-display` | **显示 / 隐藏单只宠物**（`desktop` / `none`），只传 `{ id, display }` |
 | `POST /dsh-pet-7340/config` | 用内置默认整份覆盖用户配置，即「恢复默认」 |
 
 ## 四、素材
@@ -50,7 +48,7 @@ dsh-pet 的宿主半侧向 DSH 自己的 Web 服务注册了**一条前缀路由
 | --- | --- |
 | `GET /dsh-pet-7340/thumb/{petId}/{file}` | 动画素材（`.webm` / `.mov`，按宠物归属） |
 | `GET /dsh-pet-7340/font/{file}` | 字体文件 |
-| `GET /dsh-pet-7340/pic/{file}` | 通知图标（`pic/`）与表情包（`pic/memes/{素材根}/`，按宠物归属） |
+| `GET /dsh-pet-7340/pic/{file}` | 光标等小图（`pic/`）与表情包（`pic/memes/{素材根}/`，按宠物归属） |
 
 ---
 
@@ -65,7 +63,7 @@ dsh-pet 的宿主半侧向 DSH 自己的 Web 服务注册了**一条前缀路由
      真实回执看 `GET /playback/{id}`。
    - `POST /position` 额外带回夹取后的 `x`/`y`（越界会被夹到 `0~1`，回的是实际生效值）。
 3. **`counter` 变了才渲染**：它是 `Date.now()` 且严格递增，宿主重启也不会倒退。
-   状态位的路径（如 `sections.balance`、`pets.<id>.say`）请当作**不透明键**使用——
+   状态位的路径（如 `sections.workStatus`、`pets.<id>.say`）请当作**不透明键**使用——
    宠物 id 允许含点号，**不要按 `.` 切分**。
 
 ## 快速试一下
@@ -110,29 +108,15 @@ curl -s -X POST "$BASE/anim?pet=main" \
      -d '{"url":"https://cdn.example.com/拉侧栏.webm"}'
 ```
 
-## 独立模式（不打开 DSH）
+## 运维端点
 
-不启动 DSH 时，同一份 `/dsh-pet-7340` 契约由一个本机 HTTP 服务提供（`src/standalone/server.ts`，
-用法见 [`dsh-pet/README.md`](dsh-pet/README.md) 的「🧍 独立运行（完全不打开 DSH）」）：
-
-```bash
-BASE=http://127.0.0.1:3080/dsh-pet-7340   # 独立模式默认端口 3080（被占用则顺延）
-```
-
-**上表所有端点与约定在这里完全不变** —— 独立模式把插件的宿主半边跑在伪 ctx 上，
-路由表仍是 `src/host/index.ts` 那一份（桌面助手照旧走 bridge 管道）。因此本文件与
-[`openapi.yaml`](openapi.yaml) 描述的 `/dsh-pet-7340` 契约**不需要为独立模式做任何改动**。
-
-独立模式另外多两个只属于该服务的运维端点（不在 `/dsh-pet-7340` 前缀下，故不在 OpenAPI 契约里）：
+不在 `/dsh-pet-7340` 前缀下，故不在 OpenAPI 契约里：
 
 | 端点 | 说明 |
 | --- | --- |
-| `GET /`、`GET /health` | 服务与插件信息：名称、插件根与版本、监听端口、已运行秒数 |
-| `POST /shutdown` | 优雅停机：释放插件注册的 effect（停止桌面助手、清掉周期定时器）后关闭服务，进程退出码 0 |
-
-依赖 DSH 的能力在独立模式下**明确降级**（结构化失败，不假装成功）：`POST /whisper`、`POST /chat`
-回 `{ ok: false, reason: 'provider-missing' }`（没有模型服务），`POST /balance` 回
-`{ ok: false, reason: 'unsupported' }`，`GET /state` 的各状态位保持空闲初始值。
+| `GET /`、`GET /health` | 服务信息：名称、包根与版本、监听端口、pid、已运行秒数 |
+| `POST /shutdown` | 优雅停机：停桌面小窗、清周期定时器后关闭服务（托盘「退出桌宠」走的就是它） |
+| `POST /claude-code/hook` | Claude Code hook 入口：body 即 hook 载荷，翻译成工作状态后回 `{ ok, events }` |
 
 ## 相关
 

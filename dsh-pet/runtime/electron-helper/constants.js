@@ -1,5 +1,5 @@
 /**
- * dsh-pet desktop helper —— 基础设施（常量 + 全局状态 + 调试钩子）。
+ * desk-pet desktop helper —— 基础设施（常量 + 全局状态 + 调试钩子）。
  *
  * 经典 script 全局共享（经 index.html 顺序加载，先于 sprite.js / events.js / renderer.js）；
  * 顶层 const/let/function 都进全局词法环境，后续文件可直接引用。
@@ -31,15 +31,6 @@ function toLocal(v) {
 // bridge 模式（DSH_PET_BRIDGE=1）：请求走自定义 scheme，经 Electron 主进程转宿主管道——
 // 绕开 DSH Desktop 2.0.3+ 的浏览器访问闸门（只放行带令牌的请求，插件自拉进程的裸 HTTP 全 403）
 const BRIDGE = params.get('bridge') === '1';
-// 工具项「打开网站」的去向（主进程按宿主形态经 query 注入，见 main.js 的 OPEN_TARGET）：
-// desktop = 宿主是 DSH 桌面应用，菜单项改叫「打开 DeepSeek Harness」并唤起桌面应用主窗口；
-// claude = Claude Code 模式，菜单项叫「打开 Claude Code」；site = 打开站点。
-const OPEN_TARGET = ['desktop', 'claude'].includes(params.get('openTarget')) ? params.get('openTarget') : 'site';
-/** Claude Code 模式：没有余额接口，菜单不出「查看余额」 */
-const CLAUDE_HOST = OPEN_TARGET === 'claude';
-/** 「打开网站」一项的文案（随宿主形态） */
-const OPEN_SITE_LABEL =
-  OPEN_TARGET === 'desktop' ? '打开 DeepSeek Harness' : OPEN_TARGET === 'claude' ? '打开 Claude Code' : '打开网站';
 // 视口 = 全部显示器工作区的外接矩形（多显示器时即整个桌面；窗口只是宠物的一块局部画布）。
 // 它只是**坐标系原点与比例换算基准**：位置比例（customPos）、漫游 ratio 都按它算。
 // x/y = 外接矩形左上角（多显示器时原点非 0）——visibleClampRect 计算「窗口 ∩ 工作区」需要它；
@@ -148,10 +139,9 @@ applyDeskGeometry({
 const ORIGIN = new URL(CONFIG.configUrl).origin;
 /** 宿主 /dsh-pet-7340 前缀：bridge 走自定义 scheme（主进程转发），否则 HTTP 直连宿主 */
 const BASE = BRIDGE ? 'dsh-pet-bridge://dsh-pet/dsh-pet-7340' : ORIGIN + '/dsh-pet-7340';
-const STATE_URL = BASE + '/state'; // 轮询统一状态 S：前端 1s 轮询的唯一数据源（余额/工作状态/通知/说话）
-const BALANCE_URL = BASE + '/balance'; // 余额刷新动作（POST，写 S；数据本身从 /state 读）
+const STATE_URL = BASE + '/state'; // 轮询统一状态 S：渲染端的唯一数据源（工作状态/说话/动作指令）
 const WHISPER_URL = BASE + '/whisper';
-const BUBBLE_DURATION_MS = 10 * 1000; // 余额/碎碎念气泡展示时长（与浏览器一致：定时自动消失，与动画解耦）
+const BUBBLE_DURATION_MS = 10 * 1000; // 碎碎念气泡展示时长（定时自动消失，与动画解耦）
 // /state 长轮询的挂起时长（与浏览器端同值）：宿主在"版本没变"时最多挂这么久。
 // 1s 是前端自己定的下限——空闲时请求率与改造前一致（1 req/s），叶子一变宿主立刻返回。
 const STATE_WAIT_MS = 1000;
@@ -164,9 +154,6 @@ const rootEl = document.getElementById('root');
 const errorEl = document.getElementById('pet-error');
 let config = null; // { pets: 拍平后的成品实例列表, physics, confineToScreen }（loadConfig 填充）
 let sprites = []; // PetSprite[]（本窗口只装一只宠物）
-let balance = null; // BalanceState（本窗口单宠共用）
-let balanceTick = 0;
-let balanceNoticeKey = null; // 上次已提示的不可用原因（reason:provider）：自动轮询只在原因变化时再弹（判定在 shared，与浏览器同一份）
 let workTick = 0; // 工作状态联动 tick：容器 1s 轮询 /state 的 sections.workStatus，counter 变化才递增（各启用宠物以此触发）
 let bootTimer = null;
 let loopsStarted = false;
@@ -177,7 +164,6 @@ window.__dshPetDebug = {
   configOk: false,
   spriteCount: 0,
   lastBubbleTitle: '',
-  lastBalanceOk: null,
   menuOpen: false,
   chatOpen: false,
   bootAt: Date.now(),

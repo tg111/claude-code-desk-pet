@@ -331,9 +331,6 @@
       max-height: 54px; overflow: auto;
     }
 
-    /* ── 余额 ── */
-    .bal-amount { font-size: 23px; font-weight: 650; letter-spacing: -.3px; }
-    .bal-cur { font-size: 13px; color: var(--muted); font-weight: 500; margin-left: 3px; }
 
     .meter { margin-top: 11px; }
     .meter-top { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 4px; }
@@ -824,19 +821,18 @@
 
               <div class="hero-actions">
                 <button type="button" class="btn primary" id="btn-whisper">让它说句话</button>
-                <button type="button" class="btn" id="btn-balance">刷新余额</button>
                 <button type="button" class="btn" id="btn-chat-jump">去对话</button>
               </div>
             </div>
           </div>
         </div>
 
-        <div class="grid3">
+        <div style="margin-top:16px">
           <!-- 工作状态 -->
           <div class="card">
             <div class="card-head">
               <h2>工作状态</h2>
-              <span class="hint">随 DSH 会话变化</span>
+              <span class="hint">随 Claude Code 会话变化</span>
             </div>
             <div class="card-body">
               <div class="status-line">
@@ -846,29 +842,6 @@
             </div>
           </div>
 
-          <!-- 余额 -->
-          <div class="card">
-            <div class="card-head">
-              <h2>余额钱包</h2>
-              <span class="hint" id="bal-age"></span>
-            </div>
-            <div class="card-body" id="bal-body">
-              <div class="empty-note">还没有数据</div>
-            </div>
-          </div>
-
-          <!-- 通知 -->
-          <div class="card">
-            <div class="card-head">
-              <h2>系统通知</h2>
-              <span class="hint">回合结束 / 权限 / 提问</span>
-            </div>
-            <div class="card-body">
-              <div class="feed" id="notify-feed">
-                <div class="empty-note">还没有通知</div>
-              </div>
-            </div>
-          </div>
         </div>
 
       </section>
@@ -895,7 +868,7 @@
                 <br>
                 时长可调、可关掉动画联动、可提前撤回——这三件事是 issue #122 第 5 条要的。
                 内容与频率由调用方自己负责：<b>不设长度限制，也不限频</b>；「清空气泡」只收起说话气泡，
-                正在播的动画、余额气泡、工作状态气泡都不动，没有气泡时也回 <span class="mono">ok</span>。
+                正在播的动画、工作状态气泡都不动，没有气泡时也回 <span class="mono">ok</span>。
               </div>
             </details>
 
@@ -987,7 +960,7 @@
                 消费端直接换源播一次、<b>不走菜单语义</b>（裸地址没有"是不是文字类 / 是不是移动类"这些属性）。
                 两个都给或都不给都会被判 <span class="mono">bad-request</span>。
                 <br>
-                点播是"插播一段"：播完回到正常动画链；<span class="mono">display: both</span> 时两端都会播。
+                点播是"插播一段"：播完回到正常动画链。
                 要看回执请用下面那张「播放回执」卡片。
               </div>
             </details>
@@ -1033,7 +1006,7 @@
                 <video id="anim-preview" muted loop playsinline style="max-width:220px;border-radius:8px;background:#000"></video>
                 <span class="hint">
                   画面是浏览器<b>从上传后的那个地址</b>取回来的——能出画就说明服务真能访问它。
-                  地址跨源（测试代理 8741 vs DSH 页面），代理给 <span class="mono">/__uploads</span> 补了
+                  地址跨源（测试代理 8741 vs 桌宠服务），代理给 <span class="mono">/__uploads</span> 补了
                   <span class="mono">Access-Control-Allow-Origin</span> 才能过。
                 </span>
               </div>
@@ -1225,10 +1198,10 @@
           </div>
         </div>
 
-        <!-- 显示在哪端：第三方改单只宠物的 display（两端右键菜单走的就是这个接口） -->
+        <!-- 显示 / 隐藏：第三方改单只宠物的 display（右键「隐藏」与托盘开关走的就是这个接口） -->
         <div class="card">
           <div class="card-head">
-            <h2>显示在哪端</h2>
+            <h2>显示 / 隐藏</h2>
             <span class="hint">POST /pet-display</span>
           </div>
           <div class="card-body">
@@ -1239,22 +1212,20 @@
                 <span class="mono">display</span>，<b>不用回传整段 pets</b>——层归属（写
                 <span class="mono">main-config.jsonc</span> 还是
                 <span class="mono">pet/&lt;前缀&gt;-config.json</span>）由宿主按 id 反查。
-                桌面端与浏览器端的右键菜单「显示位置」走的就是它。
+                右键「隐藏」与托盘开关走的就是它。
                 <br>
-                <b>这管的是"哪个端"，不是屏幕坐标</b>——屏幕坐标见同页的「位置与抛掷」。
-                这是<b>持久配置写入</b>，不是临时隐藏：选「都不」后这只宠物两端都不可见，
-                恢复入口是设置页的「显示在哪端」下拉框。返回体是改动后的成品聚合，本页据此刷新宠物清单。
+                <b>这管的是显示与否，不是屏幕坐标</b>——屏幕坐标见同页的「位置与抛掷」。
+                这是<b>持久配置写入</b>：隐藏后恢复入口是系统托盘（或再调一次本接口）。
+                返回体是改动后的成品聚合，本页据此刷新宠物清单。
               </div>
             </details>
 
             <div class="row">
-              <label for="disp-value">显示在哪端</label>
+              <label for="disp-value">显示</label>
               <div class="ctl">
                 <select id="disp-value" class="grow">
-                  <option value="web">仅网页</option>
-                  <option value="desktop">仅桌面</option>
-                  <option value="both">两者</option>
-                  <option value="none">都不</option>
+                  <option value="desktop">显示</option>
+                  <option value="none">隐藏</option>
                 </select>
                 <select id="disp-pet"></select>
               </div>
@@ -1343,7 +1314,6 @@
           <div class="card-head"><h2>全局开关</h2></div>
           <div class="card-body">
             <div class="switches">
-              <label class="chk"><input type="checkbox" id="sw-notifications"> 系统通知</label>
               <label class="chk"><input type="checkbox" id="sw-whisper-image"> 碎碎念配图</label>
               <label class="chk"><input type="checkbox" id="sw-chat-image"> 对话配图</label>
               <label class="chk"><input type="checkbox" id="sw-confine"> 限制在屏幕内</label>
@@ -1362,12 +1332,12 @@
         <div class="card">
           <div class="card-head">
             <h2>AI 模型</h2>
-            <span class="hint">与 DSH 自己的模型选择器同源</span>
+            <span class="hint">清单来自 GET /models</span>
           </div>
           <div class="card-body">
             <div class="card-desc">
               碎碎念与对话各自用哪个模型（<span class="mono">whisperModel</span> /
-              <span class="mono">chatModel</span>）。<b>要么都留空（= 跟随当前对话的模型）、要么都选</b>
+              <span class="mono">chatModel</span>）。<b>要么都留空（= 默认模型，DESK_PET_MODEL / haiku）、要么都选</b>
               ——只选一半是非法组合（宿主直接回 400）。清单来自 <span class="mono">GET /models</span>。
             </div>
             <div class="fields" id="model-rows" style="margin-top:10px">
@@ -1383,8 +1353,8 @@
           </div>
           <div class="card-body">
             <div class="card-desc">
-              重力 / 弹性 / 地面摩擦 / 总力度 + 两个开关。浏览器保存后即时生效；桌面端由保存触发的
-              Helper 重启重新读取——<span class="mono">physics</span> 在 sprite 构造时只读一次。
+              重力 / 弹性 / 地面摩擦 / 总力度 + 两个开关。保存会触发桌面 Helper 重启并重新读取——
+              <span class="mono">physics</span> 在 sprite 构造时只读一次。
             </div>
             <div class="fields" id="phys-rows" style="margin-top:10px"></div>
             <div class="switches" id="phys-toggles"></div>
@@ -1413,7 +1383,7 @@
         <div class="card">
           <div class="card-head">
             <h2>可用模型</h2>
-            <span class="hint">与 DSH 自己的模型选择器同源</span>
+            <span class="hint">清单来自 GET /models</span>
           </div>
           <div class="card-body" id="models-body">
             <button type="button" class="btn sm" id="models-load">加载模型清单</button>
@@ -1475,7 +1445,6 @@
       say: null,           // { text, image } 或 { text, url }（配图两种形态二选一）
       sayAt: 0,
       sayCounter: 0,
-      notes: [],           // 客户端自己攒的通知历史（host 侧只有一个槽位）
       chat: [],
       awaiting: false,
       activity: [],
@@ -1638,9 +1607,7 @@
         S.firstPoll = false;
         renderLeaves(leaves, r, {});
         // 首拉也要把当前状态显示出来
-        applyLeaf(s.sections.balance, "sections.balance");
         applyLeaf(s.sections.workStatus, "sections.workStatus");
-        applyLeaf(s.sections.notify, "sections.notify", { replay: false });
         for (const [p, leaf] of leaves) {
           if (p.startsWith("pets.") && p.endsWith(".say")) applyLeaf(leaf, p, { initial: true });
         }
@@ -1661,9 +1628,7 @@
     /** 一个叶子变了 → 更新对应界面（路径当不透明键：用前后缀切片取宠物 id） */
     function applyLeaf(leaf, path, opt = {}) {
       if (!leaf) return;
-      if (path === "sections.balance") return renderBalance(leaf.data);
       if (path === "sections.workStatus") return renderWork(leaf.data);
-      if (path === "sections.notify") return pushNotify(leaf.data, opt);
       if (path.startsWith("pets.") && path.endsWith(".say")) {
         // 取 id：剥掉 "pets." 前缀与 ".say" 后缀（不按 '.' 切分）
         const pid = path.slice("pets.".length, path.length - ".say".length);
@@ -1678,7 +1643,7 @@
       const dot = $("conn-dot");
       dot.className = "dot " + (ok ? "on" : "off");
       $("conn-label").textContent = ok ? "已连接 · " + S.port : "未连接";
-      if (!ok) toast("连不上桌宠宿主——确认 DSH 在跑、端口填对", "bad");
+      if (!ok) toast("连不上桌宠——确认 desk-pet 在跑、端口填对（见 ~/.desk-pet/server.json）", "bad");
     }
 
     // ── 实时状态（叶子表） ──
@@ -1777,160 +1742,6 @@
       const task = data && typeof data.task === "string" && data.task ? data.task : "";
       $("work-task").textContent = task || "—";
       $("work-task").style.color = task ? "" : "var(--faint)";
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // 余额
-    // ═══════════════════════════════════════════════════════════════
-
-    function pctClass(v) { return v >= 90 ? "bad" : v >= 70 ? "warn" : ""; }
-
-    function renderBalance(data) {
-      const box = $("bal-body");
-      box.innerHTML = "";
-      if (!data) {
-        box.appendChild(el("div", "empty-note", "还没有数据"));
-        return;
-      }
-      if (data.ok !== true) {
-        const reason = { unsupported: "该服务商不支持查询余额", "credential-missing": "缺少凭证", "fetch-error": "抓取失败" }[data.reason] || "不可用";
-        const wrap = el("div");
-        wrap.appendChild(el("span", "pill red", reason));
-        if (data.message) {
-          const t = el("div", "stat-sub", data.message);
-          t.style.marginTop = "8px";
-          t.style.wordBreak = "break-word";
-          wrap.appendChild(t);
-        }
-        box.appendChild(wrap);
-        const prov = el("div", "stat-sub", "服务商：" + (data.provider || "unknown"));
-        prov.style.marginTop = "8px";
-        box.appendChild(prov);
-        $("bal-age").textContent = data.manual ? "手动刷新" : "";
-        return;
-      }
-
-      // 注意：/state 里是**宿主原始形状** —— 金额/用量都在内层 data 里
-      // （{ ok, provider, kind, manual?, data: { total, ... } }），
-      // 不是客户端 shared 那套拍平后的 BalanceView。
-      const d = data.data && typeof data.data === "object" ? data.data : {};
-
-      if (data.kind === "deepseek") {
-        const head = el("div");
-        head.appendChild(el("span", "bal-amount", d.total ?? "—"));
-        head.appendChild(el("span", "bal-cur", d.currency || ""));
-        box.appendChild(head);
-        const rows = el("div");
-        rows.style.marginTop = "10px";
-        if (d.granted) rows.appendChild(kv("赠送", d.granted));
-        if (d.toppedUp) rows.appendChild(kv("充值", d.toppedUp));
-        if (rows.childElementCount) box.appendChild(rows);
-      } else if (data.kind === "opencode" || data.kind === "commandcode") {
-        for (const [label, v, reset] of [
-          ["滚动窗口", d.rolling, d.rollingResetsAt],
-          ["本周", d.weekly, d.weeklyResetsAt],
-          ["本月", d.monthly, d.monthlyResetsAt],
-        ]) {
-          const n = Number(v);
-          if (!Number.isFinite(n)) continue;
-          const m = el("div", "meter");
-          const top = el("div", "meter-top");
-          top.appendChild(el("span", "k", label + (reset ? " · " + shortReset(reset) : "")));
-          top.appendChild(el("span", "v", Math.round(n) + "%"));
-          m.appendChild(top);
-          const bar = el("div", "bar");
-          const fill = el("i", pctClass(n));
-          fill.style.width = Math.max(0, Math.min(100, n)) + "%";
-          bar.appendChild(fill);
-          m.appendChild(bar);
-          box.appendChild(m);
-        }
-      } else {
-        box.appendChild(el("div", "empty-note", "认不出的余额类型"));
-      }
-
-      const prov = el("div", "stat-sub", "服务商：" + (data.provider || "unknown"));
-      prov.style.marginTop = "10px";
-      box.appendChild(prov);
-      $("bal-age").textContent = data.manual ? "本次为手动刷新" : "";
-    }
-
-    function kv(k, v) {
-      const r = el("div", "kv");
-      r.appendChild(el("span", "k", k));
-      r.appendChild(el("span", "v", String(v)));
-      return r;
-    }
-
-    function shortReset(iso) {
-      const d = new Date(iso);
-      if (isNaN(d)) return "";
-      return d.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // 通知（host 只有一个槽位，客户端自己攒历史）
-    // ═══════════════════════════════════════════════════════════════
-
-    const NOTIFY_ICON = {
-      "session/event": "✅",
-      "approval/requested": "🔐",
-      "question/requested": "❓",
-      "host/agent-error": "⚠️",
-    };
-
-    function notifyText(frame) {
-      if (!frame || !frame.type) return null;
-      if (frame.type === "session/event") {
-        const reason = frame.event && frame.event.data && frame.event.data.reason;
-        const kind = reason && reason.kind;
-        if (kind === "completed") return { t: "对话完成", b: "", i: "✅" };
-        if (kind === "error") return { t: "生成失败", b: (reason.error && reason.error.message) || "", i: "❌" };
-        if (kind === "max-tokens") return { t: "输出被截断", b: "已达到输出 token 上限", i: "✂️" };
-        return null;                                   // aborted 等不弹
-      }
-      if (frame.type === "approval/requested") {
-        return { t: "正在申请权限", b: (frame.toolName ? "工具「" + frame.toolName + "」" : "") + (frame.reason ? "：" + frame.reason : ""), i: "🔐" };
-      }
-      if (frame.type === "question/requested") {
-        const q = frame.questions && frame.questions[0] && frame.questions[0].question;
-        return { t: "模型在等你回答", b: q || "", i: "❓" };
-      }
-      if (frame.type === "host/agent-error") {
-        return { t: "生成失败", b: frame.message || "", i: "⚠️" };
-      }
-      return null;
-    }
-
-    function pushNotify(frame, opt = {}) {
-      const info = notifyText(frame);
-      if (!info) return;
-      // 同一个 counter 的重复渲染（首拉/编辑后重读）不该重复入列
-      const key = JSON.stringify(frame);
-      const last = S.notes[0];
-      if (last && last.key === key) return;
-      S.notes.unshift({ ...info, key, at: Date.now() });
-      if (S.notes.length > 20) S.notes.length = 20;
-      renderNotes();
-    }
-
-    function renderNotes() {
-      const box = $("notify-feed");
-      box.innerHTML = "";
-      if (!S.notes.length) {
-        box.appendChild(el("div", "empty-note", "还没有通知"));
-        return;
-      }
-      for (const n of S.notes) {
-        const item = el("div", "feed-item");
-        item.appendChild(el("span", "fi-ico", n.i));
-        const b = el("div", "fi-body");
-        b.appendChild(el("div", "fi-title", n.t));
-        if (n.b) b.appendChild(el("div", "fi-text", n.b));
-        item.appendChild(b);
-        item.appendChild(el("span", "fi-time", hhmmss(n.at)));
-        box.appendChild(item);
-      }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -2254,17 +2065,16 @@
       ["top-right", "右上"],
       ["top-left", "左上"],
     ];
+    // both / web 是原版浏览器浮层留下的值：分别等同 desktop / none（编辑时按等价值显示）
     const DISPLAYS = [
-      ["both", "浏览器 + 桌面"],
-      ["web", "仅浏览器"],
-      ["desktop", "仅桌面"],
-      ["none", "都不显示"],
+      ["desktop", "显示"],
+      ["none", "隐藏"],
     ];
 
     // ── AI 模型（碎碎念 / 对话）────────────────────────────────────
-    // 与宿主 modelSelectionValid 同一套语义：{ provider, model } 要么都空（= 跟随当前对话的模型）、
+    // 与宿主 modelSelectionValid 同一套语义：{ provider, model } 要么都空（= 默认模型）、
     // 要么都非空。只选一半会拼出"A 家服务商 + B 家模型名"这种必然失败的组合，宿主一律回 400。
-    // 清单与 DSH 自己的模型选择器同源：GET /models → [{ id, name, models: [{ id, name }] }]。
+    // 清单：GET /models → [{ id, name, models: [{ id, name }] }]（desk-pet 下是 claude-code + 别名）。
     /** 模型清单（null = 还没拉到；[] = 拉失败 / 没有服务商） */
     let modelCatalog = null;
     let modelCatalogPromise = null;
@@ -2282,7 +2092,7 @@
       };
     };
 
-    /** 拉一次模型清单（并发去重；拉不到就退化成"只有跟随当前对话可选"） */
+    /** 拉一次模型清单（并发去重；拉不到就退化成"只有默认模型可选"） */
     function ensureModelCatalog() {
       if (modelCatalog) return Promise.resolve(modelCatalog);
       if (!modelCatalogPromise) {
@@ -2304,7 +2114,7 @@
       const wrap = el("div");
       wrap.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;align-items:center";
 
-      const provPairs = [["", "（跟随当前对话）"]];
+      const provPairs = [["", "（默认模型）"]];
       for (const g of groups) provPairs.push([g.id, g.name || g.id]);
       // 配置里的服务商不在清单里（下线 / 改名 / 清单没读到）：如实列出并标注，绝不静默改选成别的
       const away = modelCatalogErr ? "（清单读取失败）" : "（不在清单里）";
@@ -2322,8 +2132,8 @@
       wrap.appendChild(provSel);
 
       if (!cur.provider) {
-        // 跟随当前对话：没有模型可选（省掉一个必然被禁用的空下拉框）
-        wrap.appendChild(el("span", "empty-note", "跟随当前对话的模型"));
+        // 默认模型：没有模型可选（省掉一个必然被禁用的空下拉框）
+        wrap.appendChild(el("span", "empty-note", "默认模型（DESK_PET_MODEL，缺省 haiku）"));
         return wrap;
       }
       const g = groups.find((x) => x.id === cur.provider);
@@ -2468,8 +2278,7 @@
           id: p.id,
           name: p.name,
           size: Number(p.conf.size) || 462,
-          display: String(p.conf.display || "both"),
-          balanceEnabled: p.conf.balanceEnabled === true,
+          display: ["desktop", "both"].includes(String(p.conf.display)) ? "desktop" : "none",
           whisperEnabled: p.conf.whisperEnabled !== false,
           workStatusEnabled: p.conf.workStatusEnabled !== false,
           fixedEnabled: p.conf.fixedEnabled === true,
@@ -2509,14 +2318,13 @@
         fields.appendChild(field("显示名", textInput(p.name, (v) => { p.name = v; })));
         fields.appendChild(field("id", textInput(p.id, (v) => { p.id = v; })));
         fields.appendChild(field("尺寸", numInput(p.size, (v) => { p.size = v; })));
-        fields.appendChild(field("显示在哪端", selectInput(DISPLAYS, p.display, (v) => { p.display = v; })));
+        fields.appendChild(field("显示", selectInput(DISPLAYS, p.display, (v) => { p.display = v; })));
         fields.appendChild(field("停靠角", selectInput(CORNERS, p.corner, (v) => { p.corner = v; })));
         fields.appendChild(field("横向边距", numInput(p.marginX, (v) => { p.marginX = v; })));
         fields.appendChild(field("纵向边距", numInput(p.marginY, (v) => { p.marginY = v; })));
         row.appendChild(fields);
 
         const toggles = el("div", "toggles");
-        toggles.appendChild(chk("余额", p.balanceEnabled, (v) => { p.balanceEnabled = v; }));
         toggles.appendChild(chk("碎碎念", p.whisperEnabled, (v) => { p.whisperEnabled = v; }));
         toggles.appendChild(chk("工作状态联动", p.workStatusEnabled, (v) => { p.workStatusEnabled = v; }));
         toggles.appendChild(
@@ -2534,7 +2342,6 @@
 
       // 全局开关从 main 条目读
       const main = S.cfg && S.cfg.main ? S.cfg.main : {};
-      $("sw-notifications").checked = main.notificationsEnabled !== false;
       $("sw-whisper-image").checked = main.whisperImageEnabled !== false;
       $("sw-chat-image").checked = main.chatImageEnabled !== false;
       $("sw-confine").checked = main.confineToScreen === true;
@@ -2616,14 +2423,12 @@
           id: String(p.id || "").trim(),
           name: String(p.name || "").trim(),
           size: Number(p.size),
-          balanceEnabled: !!p.balanceEnabled,
           whisperEnabled: !!p.whisperEnabled,
           workStatusEnabled: !!p.workStatusEnabled,
           fixedEnabled: !!p.fixedEnabled,
           display: p.display,
           position: { corner: p.corner, marginX: Number(p.marginX), marginY: Number(p.marginY) },
         })),
-        notificationsEnabled: $("sw-notifications").checked,
         whisperImageEnabled: $("sw-whisper-image").checked,
         chatImageEnabled: $("sw-chat-image").checked,
         confineToScreen: $("sw-confine").checked,
@@ -2824,21 +2629,6 @@
       if (leaf) {
         S.baseline["pets." + S.petId + ".say"] = leaf.counter;
         renderSay(leaf.data, S.petId);
-      }
-    });
-
-    $("btn-balance").addEventListener("click", async () => {
-      const b = $("btn-balance");
-      b.disabled = true;
-      b.textContent = "查询中…";
-      await POST("/balance");
-      b.disabled = false;
-      b.textContent = "刷新余额";
-      const s = await GET("/state");
-      const leaf = s.body && s.body.sections && s.body.sections.balance;
-      if (leaf) {
-        S.baseline["sections.balance"] = leaf.counter;
-        renderBalance(leaf.data);
       }
     });
 
@@ -3461,8 +3251,7 @@
         id: "pet" + (draft.length + 1),
         name: "新桌宠",
         size: 462,
-        display: "both",
-        balanceEnabled: false,
+        display: "desktop",
         whisperEnabled: true,
         workStatusEnabled: true,
         fixedEnabled: false,
@@ -3520,7 +3309,7 @@
       await poll();
       // 每秒轮询：整页唯一的数据来源
       S.timers.poll = setInterval(() => { void poll(); }, POLL_MS);
-      // 余额/通知的时间显示每 30 秒刷新一次
+      // 说话时间的显示每 30 秒刷新一次
       S.timers.age = setInterval(() => {
         if (S.sayAt) $("say-time").textContent = hhmmss(S.sayAt);
       }, 30000);

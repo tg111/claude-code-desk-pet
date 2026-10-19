@@ -2,7 +2,7 @@
 /**
  * ensure-electron.mjs
  *
- * 自动下载 Electron 到 $DSH_HOME/electron（默认 ~/.dsh/electron），
+ * 自动下载 Electron 到 <数据目录>/electron（默认 ~/.desk-pet/electron），
  * 供 dsh-pet 桌面 Helper（透明置顶窗口）使用。
  *
  * 下载走官方 @electron/get（URL 拼装 / 镜像 / SHA256 校验 / 缓存复用），
@@ -13,7 +13,7 @@
  *   node scripts/ensure-electron.mjs
  *
  * 环境变量：
- *   DSH_HOME                     DSH 主目录（默认 ~/.dsh）
+ *   DSH_HOME / DESK_PET_HOME     数据目录（默认 ~/.desk-pet，与 desk-pet 进程同一口径）
  *   DSH_PET_ELECTRON_VERSION     Electron 版本（默认 43.3.0）
  *   DSH_PET_ELECTRON_MIRROR      镜像地址（默认 npmmirror，国内可达）
  */
@@ -23,7 +23,10 @@ import { join, resolve } from 'node:path';
 import { downloadArtifact } from '@electron/get';
 import extract from '@electron-internal/extract-zip';
 
-const HOME = process.env.DSH_HOME || join(process.env.USERPROFILE || process.env.HOME || '', '.dsh');
+const HOME =
+  process.env.DSH_HOME ||
+  process.env.DESK_PET_HOME ||
+  join(process.env.USERPROFILE || process.env.HOME || '', '.desk-pet');
 const VERSION = process.env.DSH_PET_ELECTRON_VERSION || '43.3.0';
 const MIRROR = process.env.DSH_PET_ELECTRON_MIRROR || 'https://npmmirror.com/mirrors/electron/';
 const TARGET_DIR = resolve(HOME, 'electron');

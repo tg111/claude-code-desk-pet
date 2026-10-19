@@ -48,9 +48,9 @@ contextBridge.exposeInMainWorld('petBridge', {
   setInputRegions(input) {
     ipcRenderer.send('pet:input-regions', input);
   },
-  // 右键菜单「打开网站」：主进程按宿主形态打开——桌面应用宿主唤起桌面窗口（dsh://open），否则系统默认浏览器打开 DSH 网站（等效网页 Ctrl+点击链接）
-  openDshSite(url) {
-    ipcRenderer.send('pet:open-site', { url });
+  // 右键菜单「打开 Claude Code」：主进程用系统默认浏览器打开（地址由 DESK_PET_OPEN_URL 决定）
+  openClaudeCode() {
+    ipcRenderer.send('pet:open-claude');
   },
   // ---- 宠物间碰撞（跨窗 broker）----
   reportFlight(state) {

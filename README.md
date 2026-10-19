@@ -115,23 +115,23 @@ Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code
 
 ## 功能一览
 
-- **跟着 Claude Code 干活**：思考 / 工作 / 整理 / 等待 / 成功 / 出错六档动画 + 头顶气泡；多个会话同时跑时按优先级展示（等你确认 > 出错 > 工作 > 思考 > 整理 > 成功），子代理不会弹完成通知
+- **跟着 Claude Code 干活**：思考 / 工作 / 整理 / 等待 / 成功 / 出错六档动画 + 头顶气泡；多个会话同时跑时按优先级展示（等你确认 > 出错 > 工作 > 思考 > 整理 > 成功），子代理的工具调用也算在父会话的「工作」里
 - **碎碎念与对话**：走 `claude -p`，人设见配置里的 `whisperPrompt`；右键「对话」与它聊天，记忆持久化在 `~/.desk-pet/dsh-pet/memory.json`；还会从表情包池里挑一张配图
 - **动画链**：每个动画（含待机）播完即按权重选下一个，首尾相接；双缓冲交叉淡入，切换无空白帧
 - **屏幕漫游 / 点击 / 拖拽 / 甩抛**：朝朝向方向行走、不走出屏幕；拖拽阻尼弹簧跟手，甩出抛物线飞行、屏幕边缘反弹、落地 Q 弹
-- **右键菜单**：打开 Claude Code、碎碎念、对话、回到初始位置、显示位置、重载配置，以及「动作 → 分类 → 具体动画」任意点播
+- **右键菜单**：打开 Claude Code、碎碎念、对话、回到初始位置、隐藏（托盘可恢复）、重载配置，以及「动作 → 分类 → 具体动画」任意点播
 - **多开**：同时显示多只宠物，各自独立大小与位置；还能用 pet pack 添加**全新种类**（见下文「配置 → 方式四」）
 - **自定义动画**：往 `~/.desk-pet/dsh-pet/main-animation/webm/` 放 VP9-Alpha 的 `.webm` 即为新动画，优先于包内素材
 - **托盘**：开关每只宠物的桌面显示、退出桌宠
 - **无障碍**：支持 `prefers-reduced-motion`
 
-> 仓库里还保留着原版 DSH 插件形态的代码（浏览器浮层、网页设置页、余额查询、斜杠命令），Claude Code 模式用不到它们，本文档不再介绍。
+> 原版的 DSH 插件形态（浏览器浮层、网页设置页、余额查询、系统通知、斜杠命令）已从本仓库删除，想要那一版请看[原项目](https://github.com/PC2005-cloud/dsh-pet)。
 
 ## 🔌 对外接口（供其他插件调用）
 
 桌宠不只自己玩，也**对外开放一套 HTTP 接口**，让别的插件或脚本能驱动它、读它的状态。
 
-- **能做什么**：让它说一句指定的话、播一段指定动画、与它对话、把它挪到某个位置或抛出去；读它当前说的话、工作状态与通知
+- **能做什么**：让它说一句指定的话、播一段指定动画、与它对话、把它挪到某个位置或抛出去；读它当前说的话与工作状态
 - **为什么开放**：桌宠不该只是个摆设——比如一个「女仆」插件巡检验完想说句话，就能让桌宠当它的「实体」开口；也方便任何人基于它做二次开发
 - **怎么调**：基址 `http://127.0.0.1:<端口>/dsh-pet-7340`（端口见 `~/.desk-pet/server.json`，默认 3080；只监听本机、无鉴权）。动作类接口只回 `{ok}`，数据统一从 `GET /state` 读。在 Claude Code 里，你甚至可以让 Claude 自己 `curl` 一下，让桌宠替它说句话
 
@@ -175,13 +175,12 @@ Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code
 
 ```jsonc
 "pets": [
-  { "id": "main", "name": "蓝毛小女仆", "size": 462, "balanceEnabled": false, "whisperEnabled": true,
+  { "id": "main", "name": "蓝毛小女仆", "size": 462, "whisperEnabled": true,
     "workStatusEnabled": true, "display": "desktop", "position": { "corner": "top-right", "marginX": 24, "marginY": 100 } }
 ]
 ```
 
 - 每只宠物：`id`（唯一标识）／ `name`（显示名，也会进人设）／ `size`（宽度 px，高度 = 宽 × 9/16）／ `whisperEnabled`（自动碎碎念）／ `workStatusEnabled`（跟随 Claude Code 切换工作状态）／ `display`（`desktop` = 显示、`none` = 隐藏；托盘里也能切）／ `position`（`corner` 四角之一 + `marginX` / `marginY` 边距）
-- `balanceEnabled` 是必填字段，但 Claude Code 没有余额接口，保持 `false` 即可
 - 多只宠物 = `pets` 里写多项，每只独立大小与位置
 
 ### 用户配置：`~/.desk-pet/dsh-pet/main-config.jsonc`
@@ -201,7 +200,7 @@ Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code
 | `physics`              | 拖拽抛掷手感：重力 / 弹性 / 地面摩擦 / 顶部反弹 / 总力度 / 宠物互撞                         |
 | `memes` / `whisperImageEnabled` / `chatImageEnabled` | 表情包配图映射与开关                                         |
 
-> 覆盖语义：用户层给出即**整体替换**该字段（如写了 `animations` 就用你的整份动画池），没写的字段回落包内默认。自己写 `animations` 时 `events.balance` 不能删（原版留下的必填校验）。
+> 覆盖语义：用户层给出即**整体替换**该字段（如写了 `animations` 就用你的整份动画池），没写的字段回落包内默认。
 
 同目录下还有：对话记忆 `memory.json`（删掉即清空记忆）、自定义动画 `main-animation/webm/*.webm`（VP9-Alpha，优先于包内素材，在动画池里写文件名即可用）、自定义表情包 `memes/*.png`（键与描述写进 `memes`）。
 
@@ -228,19 +227,17 @@ Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code
     {
       "id": "pig1",              // 实例 id（可多只；不必等于文件名前缀）
       "size": 420,
-      "balanceEnabled": false,
       "display": "desktop",     // desktop = 显示 / none = 隐藏
       "position": { "corner": "top-right", "marginX": 24, "marginY": 100 }
     },
-    { "id": "pig2", "size": 360, "balanceEnabled": false, "display": "desktop", "position": { "corner": "top-left", "marginX": 24, "marginY": 100 } }
+    { "id": "pig2", "size": 360, "display": "desktop", "position": { "corner": "top-left", "marginX": 24, "marginY": 100 } }
   ],
   "animations": {
     "idle": ["待机"], "turn": [], "drag": [], "clicks": ["打滚"],
     "moves": { "default": { "minDist": 80, "maxDist": 360, "margin": 20, "leadSec": 2, "tailSec": 2 }, "actions": [] },
     "categories": [],
-    // workStatus 六档 = 思考 / 工作 / 整理 / 等待 / 成功 / 出错；
-    // balance 是原版余额功能留下的必填项（Claude Code 用不到），填一个已有动画即可
-    "events": { "workStatus": ["思考", "干活", "整理", "等你", "庆祝", "沮丧"], "balance": ["待机"] }
+    // workStatus 六档 = 思考 / 工作 / 整理 / 等待 / 成功 / 出错
+    "events": { "workStatus": ["思考", "干活", "整理", "等你", "庆祝", "沮丧"] }
   },
   "animationWeights": { "idle": 80, "turn": 0, "move": 0 },
   "eventsRefreshSec": { "whisper": 900 }
@@ -390,17 +387,6 @@ Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code
 
 <p>
   <img src="dsh-pet/assets/preview/beishubiao-tuozhuai-xuankong-fankui.gif" width="160" alt="被鼠标拖拽悬空反馈" title="被鼠标拖拽悬空反馈">
-</p>
-
-**钱袋系列**（原版余额功能的档位动画，右键「动作」里仍可点播）
-
-<p>
-  <img src="dsh-pet/assets/preview/qian-dai-man-yi.gif" width="160" alt="余额-钱袋满溢" title="余额-钱袋满溢">
-  <img src="dsh-pet/assets/preview/jin-dai-ding-dang.gif" width="160" alt="余额-金袋叮当" title="余额-金袋叮当">
-  <img src="dsh-pet/assets/preview/qian-dai-ru-chang.gif" width="160" alt="余额-钱袋如常" title="余额-钱袋如常">
-  <img src="dsh-pet/assets/preview/shu-jin-zhou-mei.gif" width="160" alt="余额-数金皱眉" title="余额-数金皱眉">
-  <img src="dsh-pet/assets/preview/dai-kong-ru-xi.gif" width="160" alt="余额-袋空如洗" title="余额-袋空如洗">
-  <img src="dsh-pet/assets/preview/fen-wen-bu-sheng.gif" width="160" alt="余额-分文不剩" title="余额-分文不剩">
 </p>
 
 **碎碎念说话动画**（碎碎念 / 对话回复触发，随机抽 1 段）

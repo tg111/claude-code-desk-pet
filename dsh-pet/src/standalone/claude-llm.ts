@@ -7,7 +7,7 @@
  *
  * 形状与 DSH 的 llm 服务一致（插件代码不知道后端换了）：
  *   - `stream(options)` 返回 **AsyncIterable**（见 `./context` 里那段 0.3.4 崩溃的注释），
- *     进程跑完后按 dsh-llm 的流协议吐出 `text-delta` + `finish` 两个块，由 BlockAssembler 收集；
+ *     进程跑完后按插件的流协议吐出 `text-delta` + `finish` 两个块，由 BlockAssembler 收集；
  *     失败在首次 `next()` 时抛出，落进调用方已有的 try/catch，变成 `generate-error` 结构化失败。
  *   - `listProviders` / `listModels` 给设置页的下拉框一个「Claude Code + 别名」的清单。
  *
@@ -41,7 +41,7 @@ const MODEL_ALIASES: Array<{ id: string; name: string }> = [
 /** stderr 只留尾部（报错文案进气泡，太长没意义） */
 const STDERR_TAIL = 400;
 
-/** 吐给 BlockAssembler 的流块（dsh-llm 流协议的子集：正文增量 + 终止原因） */
+/** 吐给 BlockAssembler 的流块（正文增量 + 终止原因，见 host/llm-messages.ts） */
 export type ClaudeStreamChunk =
   { type: 'text-delta'; index: number; text: string } | { type: 'finish'; reason: { kind: 'completed' } };
 

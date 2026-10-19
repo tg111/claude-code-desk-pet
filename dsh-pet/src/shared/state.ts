@@ -1,13 +1,12 @@
 // 轮询统一状态（S）的**客户端侧纯逻辑**：拉取 / 拍平 / 比对。
-// 浏览器 bundle 与桌面 shared-core 共用同一份（src/shared 单一来源，避免两端各写一套走样）。
+// 桌面 shared-core 用（src/shared 单一来源）。
 //
 // 消费方式（两端一致）：
 //   首拉 → flattenCounters(s) 记基线（**不渲染**，避免刷新页面时重放旧气泡）
 //   之后 → takeChanged(s, baseline) 拿本次变化的叶子 → 逐个渲染
 //
-// 路径（'sections.balance' / 'pets.<id>.say'）只当**不透明键**用，绝不解析——
+// 路径（'sections.workStatus' / 'pets.<id>.say'）只当**不透明键**用，绝不解析——
 // 宠物 id 允许含点号，解析出来必然出错。
-import { toBalanceState, type BalanceState } from './balance';
 import { toWorkStatus, type WorkStatusSnapshot } from './work-status';
 
 /** 一个叶子：计数器 + 载荷（data 为 null = 还没有数据，消费端跳过） */
@@ -116,20 +115,6 @@ export function takeChanged(s: PollState, baseline: Record<string, number>): Sta
     out.push({ path, leaf });
   }
   return out;
-}
-
-/**
- * 类型收窄：余额叶子 → `{ state, manual }`。
- * `manual` = 这次写入是**手动触发**的（`/balance` 命令、桌面「查看余额」菜单）——
- * 由 host 在写入时标记（`{...result, manual: true}`），因为只有 host 知道这次刷新是谁要的。
- * 消费端据此决定"余额不可用时要不要必弹文字说明"（decideBalanceNotice 的 explicit 参数）。
- * 形状非法 → null（消费端跳过这一拍，不抛）。
- */
-export function readBalance(leaf: StateLeaf): { state: BalanceState; manual: boolean } | null {
-  const state = toBalanceState(leaf.data);
-  if (!state) return null;
-  const manual = (leaf.data as { manual?: unknown }).manual === true;
-  return { state, manual };
 }
 
 /**

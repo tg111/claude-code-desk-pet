@@ -1,14 +1,10 @@
 /**
- * 独立模式的命令行解析与路径推导（纯逻辑，零 I/O —— 便于 node:test 直接单测）。
+ * desk-pet 的命令行解析与路径推导（纯逻辑，零 I/O —— 便于 node:test 直接单测）。
  *
- * 配置路径为什么在这里再写一遍：独立模式的 `--check` 要回答"DSH 会读哪份配置"，
- * 而那必须在不 `apply`（= 不拉起桌宠窗口）的前提下算出来。`src/host/index.ts` 仍是
- * 唯一事实来源，这里是它的**只读镜像**；`options.test.ts` 用插件自己的
- * `GET /config/meta`（由 `apply` 注册的真实路由）钉住两者一致，镜像一旦漂移测试就红。
+ * 配置路径：`--check` 要在不 `apply`（= 不拉起桌宠窗口）的前提下回答"会读哪份配置"，
+ * 所以这里转出宿主自己的 configPathsFor（同一份实现，不存在镜像漂移）。
  */
-import { join } from 'node:path';
 
-import type { ConfigPaths } from '../host/config';
 import { DEFAULT_STANDALONE_PORT } from './server';
 
 /** 命令行解析结果 */
@@ -19,7 +15,7 @@ export interface CliOptions {
 }
 
 /** `--help` 正文 */
-export const USAGE = `Claude Code 桌宠（不需要 DSH）
+export const USAGE = `desk-pet —— Claude Code 的桌面宠物
 
 用法：desk-pet [选项]
 
@@ -40,12 +36,10 @@ export const USAGE = `Claude Code 桌宠（不需要 DSH）
 `;
 
 /**
- * 数据目录：DSH_HOME（显式给了就尊重）→ DESK_PET_HOME → ~/.desk-pet。
- * 结果写回 DSH_HOME，插件内所有按 DSH_HOME 推导的路径（配置、记忆、Electron 落地目录）随之改道。
+ * 数据目录：DSH_HOME（显式给了就尊重）→ DESK_PET_HOME → ~/.desk-pet（与宿主同一份实现）。
+ * CLI 把结果写回 DSH_HOME，宿主内所有按 DSH_HOME 推导的路径（配置、记忆、Electron 落地目录）随之确定。
  */
-export function claudePetHome(env: Record<string, string | undefined>, home: string): string {
-  return env.DSH_HOME || env.DESK_PET_HOME || join(home, '.desk-pet');
-}
+export { dataHomeFor as claudePetHome } from '../host/helper-process';
 
 /**
  * 解析 argv。
@@ -75,20 +69,8 @@ export function parseArgs(argv: string[]): { options: CliOptions } | { error: st
   return { options };
 }
 
-/**
- * 配置路径集（`src/host/index.ts` 那份推导的只读镜像，见文件头）。
- * @param root 插件包根目录（构建产物里 = 包根；源码形态下 = `src/`）
- * @param home DSH_HOME
- */
-export function configPathsFor(root: string, home: string): ConfigPaths {
-  const userRoot = join(home, 'dsh-pet');
-  return {
-    defaultFile: join(root, 'assets', 'config.jsonc'),
-    userFile: join(userRoot, 'main-config.jsonc'),
-    legacyUserFile: join(userRoot, 'main-config.json'),
-    petDir: join(userRoot, 'pet'),
-  };
-}
+/** 配置路径推导：与宿主同一份实现（见 host/config.ts） */
+export { configPathsFor } from '../host/config';
 
 /** 宠物列表的展示串：`display` 原样打印，由用户确认（独立模式不替用户改配置） */
 export function describePets(pets: Record<string, unknown>[]): string {

@@ -1,24 +1,15 @@
 /**
- * 对话生成（host 半侧）：用 DSH 的 LLM 统一抽象层（ctx.llm）按条目配置的 chatModel
- * （留空 = 当前对话用的 provider/model）生成一句回复。与碎碎念（generateWhisper）同构，区别是：
+ * 对话生成（host 半侧）：经 `ctx.llm`（Claude Code 模式下 = `claude -p`）按条目配置的 chatModel
+ * （留空 = 默认模型）生成一句回复。与碎碎念（generateWhisper）同构，区别是：
  *  - 输入带历史对话（memory.json 截取的最近 N 轮），历史以 user/assistant 消息进入请求；
  *  - user 消息 = 用户刚输入的话（不是"随便叨叨"指令）；
- *  - 回复放宽到 256 token（对话比碎碎念可说得稍多），超时放宽到 60s。
+ *  - 超时放宽到 60s。
  *
  * 设计：
  *  - provider/model：条目配置的 chatModel 优先（留空 = 不指定），失败回落到
- *    agentDefaultModel.currentSelection()（当前对话的模型，与余额/碎碎念同源）重试一次——
- *    候选链见 model-selection.ts；
+ *    agentDefaultModel.currentSelection()（默认模型）重试一次——候选链见 model-selection.ts；
  *  - system = 用户配置的 whisperPrompt（人设：碎碎念与对话共用同一人设）；
- *  - reasoningEffort: 'off' —— 仅当模型声明支持 reasoning effort（含 "off"）时传，
- *    关闭深度思考：闲聊对话不需要推理。无 reasoning 元数据的模型（如
- *    reasoningEfforts: false）显式传 off 会被 dsh-llm 判为 UNSUPPORTED_REASONING_EFFORT
- *    并折叠成空流（表现为"模型未返回文本"），因此这类模型省略该字段（语义等价于不传）；
- *  - sessionId: PET_CALL_IDENTITY —— 调用身份（见 llm-call.ts）；
- *  - 无正文时读 BlockAssembler.finish 报真实失败原因（dsh-llm 把适配器抛错折进终止块）；
- *  - 历史 assistant 消息用 createAssistantMessage 构造（provider/model 记当前选择，
- *    仅作消息角色载体，不涉及适配器回放）；
- *  - 流式收集 + BlockAssembler 拼装文本；生成失败显式返回结构化原因，不伪造文案。
+ *  - 无正文时读 BlockAssembler.finish 报失败原因；生成失败显式返回结构化原因，不伪造文案。
  *
  * 配图（可选，pool 非空时）：与碎碎念「随机抽」不同——对话有真实上下文（用户输入 + 历史），
  * 故把整张表情包清单交给模型由它**按语境选**一张；模型在末尾附标记 [图:名称]，
@@ -26,9 +17,8 @@
  * （对话配图是点缀，不强制每句都带）。
  */
 
-import { BlockAssembler, createAssistantMessage, createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm';
-import { PET_CALL_IDENTITY, noTextReason } from './llm-call';
-import { supportsReasoningOff } from './llm-reasoning';
+import { BlockAssembler, createAssistantMessage, createUserMessage } from './llm-messages';
+import { noTextReason } from './llm-call';
 import { extractChatImage, memeCatalog, type MemeEntry } from './memes';
 import { modelCandidates, modelLabel, type ModelRef } from './model-selection';
 
@@ -88,7 +78,7 @@ export async function generateChat(
   // 兜底文案与失败分支同源，避免两处字面量漂移
   let last: ChatGenerateResult = { ok: false, reason: 'generate-error', message: noTextReason(undefined) };
   for (const [i, sel] of candidates.entries()) {
-    const result = await generateWith(ctx, llm, sel, system, history, userText, pool);
+    const result = await generateWith(llm, sel, system, history, userText, pool);
     if (result.ok) return result;
     last = result;
     // 回落要留痕：配的模型没生效时能在日志里看到原因（否则"我明明配了 A，怎么还是用 B"没法查）
@@ -103,7 +93,6 @@ export async function generateChat(
 
 /** 用**一个**确定的 provider/model 跑一次对话生成（候选链的一环；失败原样返回结构化原因，不吞） */
 async function generateWith(
-  ctx: { llm?: unknown },
   llm: { stream(o: unknown): AsyncIterable<unknown> },
   sel: ModelRef,
   system: string,
@@ -111,7 +100,7 @@ async function generateWith(
   userText: string,
   pool: MemeEntry[],
 ): Promise<ChatGenerateResult> {
-  // 历史 → dsh-llm 消息：user 经 createUserMessage（plugin 来源），assistant 经 createAssistantMessage
+  // 历史 → 消息：user 经 createUserMessage，assistant 经 createAssistantMessage
   const historyMessages = history.map((m) =>
     m.role === 'user'
       ? createUserMessage({
@@ -125,17 +114,11 @@ async function generateWith(
   );
 
   const deadline = AbortSignal.timeout(TIMEOUT_MS);
-  // 仅当模型声明支持 reasoning effort（含 "off"）时才传，否则省略：
-  // 无 reasoning 元数据的模型（如 reasoningEfforts: false）显式传 off 会被
-  // dsh-llm 判为 UNSUPPORTED_REASONING_EFFORT 并折叠成空流（表现为"模型未返回文本"）。
-  const supportsOff = await supportsReasoningOff(ctx, sel.provider, sel.model);
   // 配图：池非空才把清单与指令附进 user 正文（空池 = 关闭配图，正文与旧行为逐字一致）
   const wantImage = pool.length > 0;
   const options = {
     provider: sel.provider,
     model: sel.model,
-    // 调用身份（见 llm-call.ts）：缺它时 opencode-go 回 400
-    sessionId: PET_CALL_IDENTITY,
     messages: [
       ...historyMessages,
       createUserMessage({
@@ -144,11 +127,7 @@ async function generateWith(
       }),
     ],
     system,
-    // 不显式限 maxTokens：与碎碎念同因——推理模型把思考计入预算，显式小上限会截断正文；
-    // 不传由 dsh-llm 按适配器 defaultMaxTokens 兜底，对话短回复输出仍短。
     temperature: 1,
-    // 统一关闭深度思考：闲聊对话不需要推理（与碎碎念同一约束；仅模型声明支持时传）
-    ...(supportsOff ? { reasoningEffort: ReasoningEffortId('off') } : {}),
     signal: deadline,
   };
 

@@ -76,11 +76,20 @@ describe('dshHomeDir —— $DSH_HOME 解析', () => {
     });
   });
 
-  test('未设 DSH_HOME 时回落到 ~/.dsh', () => {
-    withIsolatedHome(() => {
+  test('未设 DSH_HOME 时：DESK_PET_HOME → ~/.desk-pet', () => {
+    withIsolatedHome((dir) => {
       delete process.env.DSH_HOME;
-      const userProfile = process.env.USERPROFILE || process.env.HOME || '';
-      assert.equal(dshHomeDir(), join(userProfile, '.dsh'));
+      const saved = process.env.DESK_PET_HOME;
+      try {
+        process.env.DESK_PET_HOME = join(dir, 'desk');
+        assert.equal(dshHomeDir(), join(dir, 'desk'));
+        delete process.env.DESK_PET_HOME;
+        const userProfile = process.env.USERPROFILE || process.env.HOME || '';
+        assert.equal(dshHomeDir(), join(userProfile, '.desk-pet'));
+      } finally {
+        if (saved === undefined) delete process.env.DESK_PET_HOME;
+        else process.env.DESK_PET_HOME = saved;
+      }
     });
   });
 });

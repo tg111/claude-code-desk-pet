@@ -1,8 +1,8 @@
 /**
  * Claude Code 接入的契约测试：hook 翻译、事件总线、`claude -p` 后端、单实例锁。
  *
- * 翻译层的价值全在「翻出来的事件与 DSH 同形」——所以这里不只断言事件类型，还把翻译结果
- * 直接喂给插件自己的 `reduceWorkStatus` / `reduceNotifyFrame` / `currentTaskFromTodo`，
+ * 翻译层的价值全在「翻出来的事件与宿主认的形状一致」——所以这里不只断言事件类型，还把翻译结果
+ * 直接喂给宿主自己的 `reduceWorkStatus` / `currentTaskFromTodo`，
  * 钉住"Claude Code 的哪个 hook 最终落到哪一档动画"。
  */
 import { describe, test } from 'node:test';
@@ -12,7 +12,6 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { reduceNotifyFrame, shouldNotifySession } from '../host/notify-events.ts';
 import { generateWhisper } from '../host/whisper.ts';
 import { currentTaskFromTodo, reduceWorkStatus } from '../host/work-status.ts';
 import { translateClaudeHook } from './claude-code.ts';
@@ -48,7 +47,7 @@ describe('translateClaudeHook —— hook 落到哪一档', () => {
     assert.equal(stateOf({ hook_event_name: 'StopFailure', session_id: 's', error: 'rate_limit' }), 'error');
   });
 
-  test('AskUserQuestion = 等你选：改名成插件认的 ask_user_question，通知侧能解析出题目', () => {
+  test('AskUserQuestion = 等你选：改名成宿主认的 ask_user_question，参数原样序列化', () => {
     const payload = {
       hook_event_name: 'PreToolUse',
       session_id: 's',
@@ -57,10 +56,18 @@ describe('translateClaudeHook —— hook 落到哪一档', () => {
     };
     assert.equal(stateOf(payload), 'waiting');
     const [only] = translateClaudeHook(payload);
-    assert.deepEqual(reduceNotifyFrame(only.event as never), {
-      type: 'question/requested',
-      questions: [{ question: '用哪个方案？', options: [] }],
+    assert.equal(only.event.data?.name, 'ask_user_question');
+    assert.deepEqual(JSON.parse(String(only.event.data?.arguments)), payload.tool_input);
+  });
+
+  test('超大的工具参数不搬进事件（截成空对象）', () => {
+    const [only] = translateClaudeHook({
+      hook_event_name: 'PreToolUse',
+      session_id: 's',
+      tool_name: 'Write',
+      tool_input: { content: 'x'.repeat(200 * 1024) },
     });
+    assert.equal(only.event.data?.arguments, '{}');
   });
 
   test('TodoWrite 先写任务详情（取最后一个 in_progress），再算一次工作', () => {
@@ -109,19 +116,11 @@ describe('translateClaudeHook —— hook 落到哪一档', () => {
     assert.equal(only.session.id, 'claude-code');
   });
 
-  test('子代理（带 agent_id）：会话门不弹通知，档位照常', () => {
-    const [only] = translateClaudeHook({
-      hook_event_name: 'PreToolUse',
-      session_id: 's',
-      agent_id: 'a1',
-      tool_name: 'Read',
-    });
-    assert.equal(shouldNotifySession(only.session), false);
+  test('子代理的工具调用（带 agent_id）照常记成父对话在工作', () => {
     assert.equal(
-      shouldNotifySession(translateClaudeHook({ hook_event_name: 'Stop', session_id: 's' })[0].session),
-      true,
+      stateOf({ hook_event_name: 'PreToolUse', session_id: 's', agent_id: 'a1', tool_name: 'Read' }),
+      'working',
     );
-    assert.equal(reduceWorkStatus(only.event as never), 'working');
   });
 
   test('seq 严格递增（插件同档位按 seq 取最近）', () => {
@@ -148,7 +147,7 @@ describe('伪 ctx 的事件总线', () => {
     assert.equal(got.length, 1);
   });
 
-  test('注入 model / llm / openTarget 后：模型候选链非空、生成走注入的 llm', async () => {
+  test('注入 model / llm 后：模型候选链非空、生成走注入的 llm', async () => {
     const llm = {
       stream: () => ({
         async *[Symbol.asyncIterator]() {
@@ -163,9 +162,7 @@ describe('伪 ctx 的事件总线', () => {
       logger: silent,
       llm,
       model: { provider: CLAUDE_CODE_PROVIDER, model: 'haiku' },
-      openTarget: 'claude',
     });
-    assert.equal(context.ctx.openTarget, 'claude');
     assert.deepEqual(await generateWhisper(context.ctx as never, '人设'), { ok: true, text: '摸鱼时间到～' });
   });
 });
@@ -203,7 +200,7 @@ function fakeSpawn(reply: { stdout?: string; stderr?: string; code?: number; err
   return { calls, impl };
 }
 
-/** 按 dsh-llm 流协议收正文：只拼 text-delta，并确认流以 finish 收尾 */
+/** 按插件的流协议收正文：只拼 text-delta，并确认流以 finish 收尾 */
 async function collect(stream: AsyncIterable<{ type: string; text?: string }>): Promise<string> {
   let out = '';
   let last = '';

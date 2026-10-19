@@ -1,15 +1,14 @@
 /**
  * 轮询统一状态（S）—— host 侧维护的**唯一**「给前端轮询读」的数据源。
  *
- * 背景：改造前有 4 个 1s 轮询端点（/broadcast、/work-status、/notify、/balance/trigger），
- * 浏览器是 N+3 请求/秒、桌面是 3N 请求/秒（一窗一宠，每个窗口各跑一遍），而且每个端点
- * 各写了一套"首拉记基线 / 比对 / 触发"。统一成一个 GET /state 之后：浏览器 1 请求/秒、
- * 桌面 N 请求/秒，前端只剩一份通用的「比对 counter → 渲染」逻辑。
+ * 背景：原版曾有 4 个 1s 轮询端点（/broadcast、/work-status、/notify、/balance/trigger），
+ * 每个端点各写了一套"首拉记基线 / 比对 / 触发"。统一成一个 GET /state 之后，
+ * 渲染端只剩一份通用的「比对 counter → 渲染」逻辑（桌面一窗一宠，N 只宠物 N 个轮询）。
  *
  * 形状：
  *   {
  *     counter: 1755000000007,   // 全局写入版本 = 最后一次写入的编号（顶层，不是叶子）
- *     sections: { balance: {counter,data}, workStatus: {…}, notify: {…}, config: {…} },  // 全局，所有端共享
+ *     sections: { workStatus: {counter,data}, config: {…} },  // 全局，所有端共享
  *     pets: { <宠物id>: { say: {…}, anim: {…}, position: {…}, throw: {…} } } // 每只宠物各自一份
  *   }
  *
@@ -45,7 +44,7 @@ export interface StateLeaf {
  *  当前只有 `POST /pet-display` 写它：那是唯一一个**不是发起页面自己**的配置改动
  *  （桌面端右键改显示位置），浏览器端只能靠这个信号知道。
  *  保存 / 同步配置（PUT / POST /config）**不写**——它们的调用方自己就拿到了成品聚合。 */
-export type SectionName = 'balance' | 'workStatus' | 'notify' | 'config';
+export type SectionName = 'workStatus' | 'config';
 
 /** 每宠物段（say = 要说的话；anim = 要播的动画名；position = 要挪到的位置；throw = 要给的初速度）。
  *  后两个是**指令**（host → 前端），与 say/anim 同族：前端读到即执行，不往它们写任何东西。 */
@@ -128,7 +127,7 @@ export class PollStateStore {
 
   constructor() {
     this.last = 0;
-    this.sections = { balance: emptyLeaf(), workStatus: emptyLeaf(), notify: emptyLeaf(), config: emptyLeaf() };
+    this.sections = { workStatus: emptyLeaf(), config: emptyLeaf() };
     this.pets = new Map();
     this.waiters = new Set();
   }

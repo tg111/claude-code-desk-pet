@@ -13,16 +13,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  flattenCounters,
-  readAnim,
-  readBalance,
-  readPosition,
-  readSay,
-  readThrow,
-  takeChanged,
-  type PollState,
-} from './state.ts';
+import { flattenCounters, readAnim, readPosition, readSay, readThrow, takeChanged, type PollState } from './state.ts';
 
 /** 造一份 S：sections / pets 用简写（叶子值 = counter，data 用 data 字段给） */
 function makeState(
@@ -98,73 +89,6 @@ describe('takeChanged —— counter 变了才算变化', () => {
       changes.map((c) => c.path),
       ['pets.a.b.say'],
     );
-  });
-});
-
-describe('readBalance —— 余额叶子 → 客户端视图', () => {
-  test('money：raw.data 摊平到视图顶层（含数据自带的档位基准与峰谷装饰）', () => {
-    const hit = readBalance({
-      counter: 1,
-      data: {
-        ok: true,
-        provider: 'deepseek',
-        shape: 'money',
-        data: { currency: 'CNY', total: '10.00', fullBalance: '20', tier: 'idle' },
-      },
-    });
-    assert.deepEqual(hit, {
-      state: {
-        provider: 'deepseek',
-        shape: 'money',
-        ok: true,
-        currency: 'CNY',
-        total: '10.00',
-        granted: undefined,
-        toppedUp: undefined,
-        fullBalance: '20',
-        tier: 'idle',
-      },
-      manual: false,
-    });
-  });
-
-  test('windows：三窗口用量是数字才认，非数字 → null（不把 NaN 送进展示层）', () => {
-    const good = readBalance({
-      counter: 1,
-      data: { ok: true, provider: 'opencode', shape: 'windows', data: { rolling: 1, weekly: 2, monthly: 3 } },
-    });
-    assert.equal(good?.state.ok, true);
-    const bad = readBalance({
-      counter: 1,
-      data: { ok: true, provider: 'opencode', shape: 'windows', data: { rolling: 'x', weekly: 2, monthly: 3 } },
-    });
-    assert.equal(bad, null);
-  });
-
-  test('不可用：reason 原样保留，非法 reason 归一成 fetch-error', () => {
-    const hit = readBalance({ counter: 1, data: { ok: false, provider: 'p', reason: 'credential-missing' } });
-    assert.deepEqual(hit?.state, { provider: 'p', ok: false, reason: 'credential-missing', message: undefined });
-    const weird = readBalance({ counter: 1, data: { ok: false, provider: 'p', reason: '???' } });
-    assert.equal(weird?.state.ok === false && weird.state.reason, 'fetch-error');
-  });
-
-  test('manual 标记：host 标的 true 才算手动触发（决定"不可用时要不要必弹"）', () => {
-    const manual = readBalance({ counter: 1, data: { ok: false, provider: 'p', reason: 'unsupported', manual: true } });
-    assert.equal(manual?.manual, true);
-    const auto = readBalance({ counter: 1, data: { ok: false, provider: 'p', reason: 'unsupported' } });
-    assert.equal(auto?.manual, false);
-    const notBool = readBalance({
-      counter: 1,
-      data: { ok: false, provider: 'p', reason: 'unsupported', manual: 'yes' },
-    });
-    assert.equal(notBool?.manual, false, '只有严格 true 才算');
-  });
-
-  test('脏数据 → null（消费端跳过这一拍，不抛）', () => {
-    assert.equal(readBalance({ counter: 1, data: null }), null);
-    assert.equal(readBalance({ counter: 1, data: 'nope' }), null);
-    assert.equal(readBalance({ counter: 1, data: { ok: true, provider: 'p', shape: '未知' } }), null);
-    assert.equal(readBalance({ counter: 1, data: { ok: true, provider: 'p', shape: 'money' } }), null, '缺 data 段');
   });
 });
 

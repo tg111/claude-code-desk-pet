@@ -58,7 +58,7 @@ npm run standalone       # 仓库里直接跑构建产物
 - **表情包配图**：碎碎念随机配一张，对话由模型按语境挑一张
 - **一百余个手绘风透明动画**：待机、打瞌睡、玩魔方、写代码、吃火锅、四季节日……按权重无缝衔接；双缓冲交叉淡入，切换零空白帧
 - **物理手感**：屏幕漫游、点击 Q 弹、过阻尼弹簧拖拽、甩出抛物线飞行 + 边缘反弹 + 落地 Q 弹；重力、弹性、摩擦等都可配
-- **右键菜单**：打开 Claude Code、碎碎念、对话、回到初始位置、显示位置、重载配置，以及「动作 → 分类 → 具体动画」任意点播
+- **右键菜单**：打开 Claude Code、碎碎念、对话、回到初始位置、隐藏（托盘可恢复）、重载配置，以及「动作 → 分类 → 具体动画」任意点播
 - **托盘**：开关每只宠物的显示、退出桌宠
 - **多开与 pet pack**：多只宠物同屏，各自大小位置；还能添加独立动画池与素材的全新种类
 - **对外 HTTP 接口**：别的脚本（或 Claude 自己）可以让它说话、播动画、挪位置，见 [`../API.md`](../API.md)
@@ -92,7 +92,7 @@ npm run standalone       # 仓库里直接跑构建产物
 ## 🗑️ 卸载
 
 1. 在 Claude Code 的 `/plugin` 里卸载 desk-pet（或删掉手动写进 `settings.json` 的 hooks）
-2. 托盘「退出桌宠」，然后在本目录 `npm unlink -g dsh-pet` 去掉 `desk-pet` 命令
+2. 托盘「退出桌宠」，然后 `npm rm -g desk-pet` 去掉 `desk-pet` 命令
 3. 删数据（可选）：`~/.desk-pet/`（配置、记忆、Electron 运行时、日志）；Electron 窗口缓存在 `%APPDATA%\dsh-pet-electron-helper\`（macOS `~/Library/Application Support/`，Linux `~/.config/`）
 
 ## 📄 许可

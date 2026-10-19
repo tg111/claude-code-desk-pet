@@ -1,14 +1,14 @@
 /**
- * 独立模式的 HTTP 监听器：接管 DSH WebServer 原本扮演的角色。
+ * desk-pet 的 HTTP 监听器（宿主半边的路由与 Claude Code hook 入口都挂在这里）。
  *
  * 这里**没有路由表** —— 路由表属于插件自己的宿主半边（`apply` 注册在 `ctx.webServer` 上的
  * prefix handler，见 `./context`）。本模块只做四件事：
- *   1. 绑定 127.0.0.1（端口被占用则顺延，独立模式没有 DSH 指定的固定端口）；
+ *   1. 绑定 127.0.0.1（端口被占用则顺延；实际端口由 CLI 登记进 server.json）；
  *   2. 把落在插件路由前缀上的请求原样交给那份 handler（它自己写响应头与 body）；
  *   3. 提供 `/` 与 `/health`（运维信息）和 `/shutdown`（脚本化停机）；
  *   4. 兜住 handler 的异常，按插件自身的口径回 500 JSON。
  *
- * 为什么这里不补 `Access-Control-Allow-Origin`：独立模式的桌面渲染端经 bridge 管道
+ * 为什么这里不补 `Access-Control-Allow-Origin`：桌面渲染端经 bridge 管道
  * 取数据（不是 HTTP 跨源请求），CORS 对它无意义；而由本服务直接写的响应（`/`、`/shutdown`、
  * 未匹配路由）都带上了跨源头，供浏览器/第三方工具直接消费。
  */
@@ -17,7 +17,7 @@ import type { IncomingMessage, Server as HttpServer, ServerResponse } from 'node
 
 import type { RegisteredRoute, StandaloneLogger } from './context';
 
-/** 独立模式默认端口（与插件 helper 的内置默认一致） */
+/** 默认端口（与 helper 的内置默认一致） */
 export const DEFAULT_STANDALONE_PORT = 3080;
 /** 端口被占用时向后顺延的个数上限 */
 export const PORT_SCAN_LIMIT = 25;
@@ -30,7 +30,7 @@ export interface StandaloneServerOptions {
   port?: number;
   /** `/` 与 `/health` 的运维信息提供者 */
   status?: () => unknown;
-  /** `/shutdown` 被请求时通知调用方收尾（独立模式的脚本化停机） */
+  /** `/shutdown` 被请求时通知调用方收尾（托盘「退出桌宠」与脚本化停机） */
   onShutdown?: () => void;
 }
 
@@ -166,7 +166,7 @@ async function bindFirstFree(server: HttpServer, preferred: number, logger: Stan
 }
 
 /**
- * 起独立模式服务。
+ * 起 desk-pet 服务。
  * @param options 路由、日志器、首选端口与运维回调
  * @returns 实际端口与关闭函数
  */
@@ -175,7 +175,7 @@ export async function listenStandaloneServer(options: StandaloneServerOptions): 
   // 客户端半截请求（扫描器、被中断的连接）不该变成未捕获异常刷屏
   server.on('clientError', (_error, socket) => socket.destroy());
   const port = await bindFirstFree(server, options.port ?? DEFAULT_STANDALONE_PORT, options.logger);
-  options.logger.info(`独立模式服务已监听 http://127.0.0.1:${port}/`);
+  options.logger.info(`desk-pet 服务已监听 http://127.0.0.1:${port}/`);
   return {
     port,
     async close(): Promise<void> {
