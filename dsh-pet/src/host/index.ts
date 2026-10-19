@@ -165,6 +165,12 @@ const ROUTE_PREFIX = '/dsh-pet-7340';
  */
 const isDesktopHost = (): boolean => Boolean(process.versions.electron);
 
+/** ctx 显式声明的「打开网站」去向（Claude Code 模式的伪 ctx 带 `openTarget: 'claude'`）；DSH 不带 → undefined */
+const openTargetOf = (ctx: unknown): string | undefined => {
+  const target = (ctx as { openTarget?: unknown } | null)?.openTarget;
+  return typeof target === 'string' && target ? target : undefined;
+};
+
 /** 不同扩展名对应的 Content-Type 映射 */
 const MIME: Record<string, string> = {
   '.webm': 'video/webm',
@@ -755,7 +761,8 @@ export function apply(ctx: any): void {
           // 宿主形态决定工具项「打开网站」的去向（同名菜单项，两端两种语义）：
           //   desktop = 宿主是 DSH 桌面应用 → 唤起桌面应用主窗口（helper 走 dsh://open，见 main.js）
           //   site    = dsh web / 独立模式 → 系统默认浏览器打开站点（原行为，别破坏）
-          DSH_PET_OPEN_TARGET: isDesktopHost() ? 'desktop' : 'site',
+          //   claude  = Claude Code 模式（独立模式的 ctx 显式声明 openTarget）→ 打开 Claude Code 页面
+          DSH_PET_OPEN_TARGET: openTargetOf(ctx) ?? (isDesktopHost() ? 'desktop' : 'site'),
           DSH_PET_SCALE: '1',
           // 打开 bridge 协议：main.js 注册 dsh-pet-bridge scheme，把渲染端请求经管道转给宿主
           DSH_PET_BRIDGE: '1',

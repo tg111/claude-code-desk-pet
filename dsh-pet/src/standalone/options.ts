@@ -19,9 +19,9 @@ export interface CliOptions {
 }
 
 /** `--help` 正文 */
-export const USAGE = `dsh-pet 独立模式（不需要 DSH）
+export const USAGE = `Claude Code 桌宠（不需要 DSH）
 
-用法：dsh-pet-standalone [选项]
+用法：desk-pet [选项]
 
 选项：
   --port <端口>   监听端口（默认 ${DEFAULT_STANDALONE_PORT}；被占用时自动向后顺延）
@@ -29,9 +29,23 @@ export const USAGE = `dsh-pet 独立模式（不需要 DSH）
   -h, --help      显示本帮助
 
 说明：
-  桌宠在独立模式下以「透明置顶小窗」运行；浏览器内浮层需要有 DSH 网页，独立模式不提供。
-  余额 / 碎碎念 / 对话 / 系统通知依赖 DSH 的服务，在独立模式下不可用。
+  桌宠以「透明置顶小窗」运行；装上 Claude Code 插件（claude-code-plugin/）后，
+  它会在会话开始时被自动拉起，并跟着 Claude Code 的 hook 事件切换工作状态动画。
+  碎碎念 / 对话走 claude -p（模型别名用 DESK_PET_MODEL 指定，默认 haiku）。
+
+环境变量：
+  DESK_PET_HOME       数据目录（默认 ~/.desk-pet；也认 DSH_HOME）
+  DESK_PET_MODEL      碎碎念 / 对话用的模型别名（默认 haiku）
+  DESK_PET_CLAUDE_BIN claude 可执行文件路径（默认走 PATH）
 `;
+
+/**
+ * 数据目录：DSH_HOME（显式给了就尊重）→ DESK_PET_HOME → ~/.desk-pet。
+ * 结果写回 DSH_HOME，插件内所有按 DSH_HOME 推导的路径（配置、记忆、Electron 落地目录）随之改道。
+ */
+export function claudePetHome(env: Record<string, string | undefined>, home: string): string {
+  return env.DSH_HOME || env.DESK_PET_HOME || join(home, '.desk-pet');
+}
 
 /**
  * 解析 argv。

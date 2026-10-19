@@ -1,0 +1,17 @@
+{
+  "name": "desk-pet",
+  "version": "0.1.0",
+  "description": "Claude Code 桌宠：一只住在桌面上的透明小窗宠物，跟着 Claude Code 思考 / 干活 / 等你确认 / 完成 / 出错切换动画，闲下来还会碎碎念、陪你聊天。",
+  "author": {
+    "name": "tg111"
+  },
+  "homepage": "https://github.com/tg111/dsh-pet",
+  "repository": "https://github.com/tg111/dsh-pet",
+  "license": "MIT",
+  "keywords": [
+    "desktop-pet",
+    "pet",
+    "hooks",
+    "companion"
+  ]
+}

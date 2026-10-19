@@ -4,7 +4,8 @@ dsh-pet 的宿主半侧向 DSH 自己的 Web 服务注册了**一条前缀路由
 桌面端、设置页与第三方插件全都访问同一份实现。本文只做**功能预览**（接口名 + 一句话），
 完整契约——参数、响应体、字段含义、错误码与示例——见根目录的 [`openapi.yaml`](openapi.yaml)。
 
-- **基址**：`http://127.0.0.1:<port>/dsh-pet-7340`，`<port>` 是 DSH Web 服务实际监听的端口
+- **基址**：`http://127.0.0.1:<port>/dsh-pet-7340`，`<port>` 是 DSH Web 服务实际监听的端口；Claude Code 模式（`desk-pet` 进程）下是桌宠自己的服务端口，见 `~/.desk-pet/server.json`（默认 3080）。
+  该模式另有一个 `POST /claude-code/hook`（不在前缀下），接收 Claude Code hook 载荷，由插件的转发脚本调用
 - **只监听 127.0.0.1，且没有鉴权**：任何能访问本机该端口的进程都能调用，请勿转发到公网
 
 ---

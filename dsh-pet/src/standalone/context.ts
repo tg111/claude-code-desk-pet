@@ -15,7 +15,11 @@
  *     → 余额路由命中"未登记接口"分支 → `{ ok: false, reason: 'unsupported' }`
  *   - `credentials.resolve()` → 恒 `undefined` → 凭证类失败走 `credential-missing`
  *   - `llm.*` → 模型清单为空；生成调用直接抛错 → 碎碎念/对话明确失败，不会静默
- *   - `on(...)` → 不订阅任何事件：独立模式没有 DSH 会话，工作状态因此保持空闲
+ *   - `on(...)` → 本地事件总线：没有 DSH 会话，事件由 `emit` 投递 —— Claude Code 的 hook 经
+ *     `./claude-code` 翻译成同形状的 `session/event` 后从这里进来，工作状态/通知逻辑因此一行不改
+ *
+ * 接上 Claude Code 时（`./claude-llm`），`llm` 与 `model` 由调用方注入：碎碎念/对话改走
+ * `claude -p`，余额仍按「未登记接口」明确失败（Claude Code 没有余额接口）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
@@ -46,6 +50,12 @@ export interface StandaloneContextOptions {
   logger: StandaloneLogger;
   /** 注入路由收集数组（独立模式先起服务拿到端口，再 `apply`，两者共用同一个数组） */
   routes?: RegisteredRoute[];
+  /** 替换 `ctx.llm`（缺省 = 明确降级的空替身）；形状须与 DSH 的 llm 服务一致 */
+  llm?: Record<string, unknown>;
+  /** `agentDefaultModel.currentSelection()` 的返回值（缺省 = 未配置模型的 {@link STANDALONE_PROVIDER}） */
+  model?: { provider: string; model: string };
+  /** 桌面 Helper「打开网站」的去向（缺省由插件按宿主形态决定） */
+  openTarget?: string;
 }
 
 export interface StandaloneContext {
@@ -55,6 +65,8 @@ export interface StandaloneContext {
   routes: RegisteredRoute[];
   /** 初始化期间被记录下来的异常（每项都已按 DSH 的 effect 隔离口径打了日志） */
   failures: string[];
+  /** 向 `ctx.on(name, ...)` 的订阅者投递一条事件（单个订阅者抛错只记日志，不影响其他订阅者） */
+  emit(name: string, ...args: unknown[]): void;
   /** 释放全部 effect：停桌面 Helper、清掉周期定时器 */
   dispose(): Promise<void>;
 }
@@ -87,6 +99,8 @@ export function createStandaloneContext(options: StandaloneContextOptions): Stan
   /** effect 释放函数（后注册先释放，与 Cordis 的逆序释放一致） */
   const disposers: Array<() => unknown> = [];
   let disposed = false;
+  /** 事件总线：事件名 → 订阅者（插件用 `ctx.on` 订阅，调用方用 `emit` 投递） */
+  const listeners = new Map<string, Set<(...args: unknown[]) => unknown>>();
 
   const portOf = (): number => (typeof options.port === 'function' ? options.port() : options.port);
 
@@ -122,9 +136,18 @@ export function createStandaloneContext(options: StandaloneContextOptions): Stan
         return undefined;
       }
     },
-    /** 独立模式没有 DSH 会话事件：不订阅，工作状态保持空闲 */
-    on(): () => void {
-      return () => {};
+    /** 与 Cordis 同语义：订阅事件，返回取消订阅函数；事件由 `emit` 投递（见文件头） */
+    on(name: string, listener: (...args: unknown[]) => unknown): () => void {
+      if (typeof listener !== 'function') return () => {};
+      let set = listeners.get(name);
+      if (!set) {
+        set = new Set();
+        listeners.set(name, set);
+      }
+      set.add(listener);
+      return () => {
+        listeners.get(name)?.delete(listener);
+      };
     },
     logger,
     webServer,
@@ -136,10 +159,12 @@ export function createStandaloneContext(options: StandaloneContextOptions): Stan
     connection: { authenticatedUrl: (baseUrl: string): string => baseUrl },
     commands: { register: (): (() => void) => () => {} },
     agentDefaultModel: {
-      currentSelection: (): { provider: string; model: string } => ({ provider: STANDALONE_PROVIDER, model: '' }),
+      currentSelection: (): { provider: string; model: string } =>
+        options.model ? { ...options.model } : { provider: STANDALONE_PROVIDER, model: '' },
     },
     credentials: { resolve: async (): Promise<undefined> => undefined },
-    llm: {
+    ...(options.openTarget ? { openTarget: options.openTarget } : {}),
+    llm: options.llm ?? {
       listProviders: (): unknown[] => [],
       listModels: async (): Promise<unknown[]> => [],
       /**
@@ -184,6 +209,20 @@ export function createStandaloneContext(options: StandaloneContextOptions): Stan
     ctx: context,
     routes,
     failures,
+    emit(name: string, ...args: unknown[]): void {
+      for (const listener of [...(listeners.get(name) ?? [])]) {
+        try {
+          const result = listener(...args);
+          if (result instanceof Promise) {
+            result.catch((error: unknown) => {
+              logger.warn(`事件 ${name} 的订阅者失败：${error instanceof Error ? error.message : String(error)}`);
+            });
+          }
+        } catch (error) {
+          logger.warn(`事件 ${name} 的订阅者失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    },
     async dispose(): Promise<void> {
       if (disposed) return;
       disposed = true;

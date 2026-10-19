@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * dsh-pet 独立模式入口 —— 不打开 DSH 也能养桌宠。
+ * Claude Code 桌宠入口（`desk-pet`，原 dsh-pet 独立模式）—— 不需要 DSH，跟着 Claude Code 干活。
  *
  * 它把三件事串起来（每一步都复用插件自己的实现，没有第二份业务逻辑）：
  *   1. `./context` 造一个伪 Cordis ctx，把插件的宿主半边（`src/host/index.ts` 的 `apply`）跑起来；
@@ -9,29 +9,38 @@
  *   3. 插件自己的 `launchHelper` 因此照常探测 Electron、按配置拉起透明置顶小窗，
  *      并与宿主经 bridge 管道通信 —— 与 DSH 内运行完全同一条路径。
  *
- * 用法：
- *   npx dsh-pet-standalone              # 插件装好后直接跑（package.json 的 bin）
- *   npm run standalone                  # 仓库里跑（先 npm install：prepare 会构建 lib/）
- *   node lib/standalone.js --port 3081
- *   node lib/standalone.js --check      # 只体检，不开窗口
+ * Claude Code 接入（本文件之外各一个模块）：
+ *   - `./claude-code`：`POST /claude-code/hook` 收 hook 转发脚本发来的事件，翻译成插件的
+ *     `session/event` → 工作状态动画与气泡（思考 / 工作 / 整理 / 等待 / 成功 / 出错）；
+ *   - `./claude-llm`：碎碎念 / 对话走 `claude -p`（用户在 Claude Code 里的登录，零额外配置）；
+ *   - `./instance`：单实例锁 + `server.json`（多个会话共用一只桌宠，转发脚本据此找端口）。
  *
- * 独立模式的边界：动画、物理拖拽、右键菜单、多开、自定义素材与宠物种类全部可用；
- * 余额、碎碎念、对话、系统通知依赖 DSH 的凭证/模型/会话，在独立模式下明确不可用
- * （结构化失败 + 日志，不假装成功）。详见 README 的「独立运行（不打开 DSH）」一节。
+ * 用法：
+ *   desk-pet                          # 前台运行（Ctrl+C 退出）；装了 Claude Code 插件后由 hook 自动拉起
+ *   npm run standalone                  # 仓库里跑（先 npm run build）
+ *   desk-pet --port 3081
+ *   desk-pet --check                  # 只体检，不开窗口
+ *
+ * 边界：余额依赖 DSH 的服务商接口，Claude Code 模式下不可用（菜单不出该项）；
+ * 浏览器内浮层需要 DSH 网页，这里只有桌面透明小窗。
  */
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 
 import { flattenPetList, readAllConfig } from '../host/config';
 import { dshHomeDir, packageRoot } from '../host/helper-process';
 import { apply } from '../host/index';
 import { runCheck, packageVersion } from './check';
+import { createClaudeHookRoute, CLAUDE_HOOK_PATH } from './claude-code';
+import { CLAUDE_CODE_PROVIDER, createClaudeCliLlm, DEFAULT_CLAUDE_MODEL } from './claude-llm';
+import { acquireInstanceLock, removeServerInfo, writeServerInfo } from './instance';
 import {
   createStandaloneContext,
   createStandaloneLogger,
   type RegisteredRoute,
   type StandaloneLogger,
 } from './context';
-import { configPathsFor, describePets, isDesktopVisible, parseArgs, USAGE } from './options';
+import { claudePetHome, configPathsFor, describePets, isDesktopVisible, parseArgs, USAGE } from './options';
 import { listenStandaloneServer } from './server';
 
 /** 启动独立模式：先起服务拿到端口，再 `apply`（插件据此拼桌面 Helper 的 configUrl） */
@@ -49,25 +58,56 @@ async function run(logger: StandaloneLogger, options: { port: number }): Promise
     return;
   }
 
+  // 单实例：多个 Claude Code 会话各自的 SessionStart 都会来拉一次，只留第一个
+  const lock = acquireInstanceLock(home);
+  if ('runningPid' in lock) {
+    logger.info(`桌宠已在运行（pid ${lock.runningPid}），本次不再启动。`);
+    return;
+  }
+
   const routes: RegisteredRoute[] = [];
   const portRef = { value: options.port };
-  const context = createStandaloneContext({ port: () => portRef.value, logger, routes });
+  const model = process.env.DESK_PET_MODEL || DEFAULT_CLAUDE_MODEL;
+  const llm = createClaudeCliLlm({ model, logger });
+  const context = createStandaloneContext({
+    port: () => portRef.value,
+    logger,
+    routes,
+    llm,
+    model: { provider: CLAUDE_CODE_PROVIDER, model },
+    openTarget: 'claude',
+  });
+  // hook 入口先于 apply 注册：exact 路由，与插件的 /dsh-pet-7340 前缀互不相干
+  routes.push(createClaudeHookRoute(context.emit, logger));
   // /shutdown 的回调要在服务构造时给出去，而停机函数要在服务之后定义：
   // 用一个可替换的转发器解耦（服务构造时只拿到"将来会是谁"）。
   let forwardShutdown: () => void = () => {};
-  const server = await listenStandaloneServer({
-    routes,
-    logger,
-    port: options.port,
-    status: () => ({
-      name: 'dsh-pet-standalone',
-      plugin: { root: packageRoot, version: packageVersion(packageRoot) },
-      port: portRef.value,
-      uptimeSec: Math.round(process.uptime()),
-    }),
-    onShutdown: () => forwardShutdown(),
-  });
+  let server: Awaited<ReturnType<typeof listenStandaloneServer>>;
+  try {
+    server = await listenStandaloneServer({
+      routes,
+      logger,
+      port: options.port,
+      status: () => ({
+        name: 'desk-pet',
+        plugin: { root: packageRoot, version: packageVersion(packageRoot) },
+        port: portRef.value,
+        pid: process.pid,
+        uptimeSec: Math.round(process.uptime()),
+      }),
+      onShutdown: () => forwardShutdown(),
+    });
+  } catch (error) {
+    lock.release();
+    throw error;
+  }
   portRef.value = server.port;
+  writeServerInfo(home, {
+    pid: process.pid,
+    port: server.port,
+    version: packageVersion(packageRoot),
+    startedAt: new Date().toISOString(),
+  });
 
   let shuttingDown = false;
   const shutdown = async (reason: string): Promise<void> => {
@@ -77,6 +117,9 @@ async function run(logger: StandaloneLogger, options: { port: number }): Promise
     // 先释放插件注册的 effect（停桌面 Helper、清周期定时器），再关服务
     await context.dispose();
     await server.close();
+    llm.dispose();
+    removeServerInfo(home);
+    lock.release();
     logger.info('已退出。');
   };
   const requestShutdown = (reason: string): void => {
@@ -107,16 +150,18 @@ async function run(logger: StandaloneLogger, options: { port: number }): Promise
   const desktopVisible = pets.filter(isDesktopVisible);
   for (const line of [
     '',
-    '===== dsh-pet 独立模式（不需要 DSH）=====',
-    `  插件        dsh-pet@${packageVersion(packageRoot)}  ${packageRoot}`,
+    '===== Claude Code 桌宠 =====',
+    `  版本        ${packageVersion(packageRoot)}  ${packageRoot}`,
     `  路由        http://127.0.0.1:${server.port}/dsh-pet-7340/`,
+    `  hook 入口   POST http://127.0.0.1:${server.port}${CLAUDE_HOOK_PATH}`,
+    `  碎碎念/对话 claude -p --model ${model}`,
     `  配置        ${configSource}`,
     `  宠物        ${describePets(pets)}`,
     desktopVisible.length === 0
       ? '  桌面小窗    0 只：display 需要 desktop 或 both 才会出现透明小窗（服务仍在运行）'
       : `  桌面小窗    ${desktopVisible.length} 只`,
-    '  不可用      余额 / 碎碎念 / 对话 / 系统通知（依赖 DSH 的凭证、模型与会话）',
-    '  退出        Ctrl+C，或 POST /shutdown',
+    '  不可用      余额（Claude Code 没有余额接口）',
+    '  退出        托盘菜单「退出桌宠」、Ctrl+C，或 POST /shutdown',
     '',
   ]) {
     logger.info(line);
@@ -130,7 +175,7 @@ async function run(logger: StandaloneLogger, options: { port: number }): Promise
 async function main(): Promise<number> {
   const parsed = parseArgs(process.argv.slice(2));
   if ('error' in parsed) {
-    console.error(`dsh-pet-standalone: ${parsed.error}\n`);
+    console.error(`desk-pet: ${parsed.error}\n`);
     console.error(USAGE);
     return 2;
   }
@@ -139,6 +184,8 @@ async function main(): Promise<number> {
     console.log(USAGE);
     return 0;
   }
+  // 数据目录：没显式给 DSH_HOME 时落到 ~/.desk-pet（配置、对话记忆、Electron 都在这里）
+  process.env.DSH_HOME = claudePetHome(process.env, homedir());
   const logger = createStandaloneLogger();
   if (options.check) return runCheck(logger);
   await run(logger, options);
@@ -153,6 +200,6 @@ main()
     if (code !== 0) process.exit(code);
   })
   .catch((error: unknown) => {
-    console.error(`dsh-pet-standalone: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+    console.error(`desk-pet: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
     process.exit(1);
   });

@@ -1,0 +1,16 @@
+{
+  "name": "desk-pet",
+  "owner": {
+    "name": "tg111"
+  },
+  "metadata": {
+    "description": "Claude Code 桌宠（fork 自 dsh-pet）"
+  },
+  "plugins": [
+    {
+      "name": "desk-pet",
+      "source": "./claude-code-plugin",
+      "description": "桌面宠物：跟随 Claude Code 的工作状态切换动画，并在会话开始时自动出现。"
+    }
+  ]
+}

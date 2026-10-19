@@ -259,8 +259,15 @@ const BRIDGE = process.env.DSH_PET_BRIDGE === '1';
 
 /** 「打开网站」这一项的去向（宿主按自身形态注入）：
  *  'desktop' = 宿主是 DSH 桌面应用 → 唤起桌面应用主窗口；
+ *  'claude'  = Claude Code 模式（desk-pet）→ 默认浏览器打开 Claude Code 页面（DESK_PET_OPEN_URL 可改）；
  *  'site'    = dsh web / 独立模式 / 手写 start-desktop（无该变量）→ 原行为：默认浏览器打开站点。 */
-const OPEN_TARGET = process.env.DSH_PET_OPEN_TARGET === 'desktop' ? 'desktop' : 'site';
+const OPEN_TARGET = ['desktop', 'claude'].includes(process.env.DSH_PET_OPEN_TARGET)
+  ? process.env.DSH_PET_OPEN_TARGET
+  : 'site';
+/** Claude Code 模式下「打开 Claude Code」的去向（只接受 http(s)，否则回落默认页） */
+const CLAUDE_OPEN_URL = /^https?:[/][/]/.test(process.env.DESK_PET_OPEN_URL || '')
+  ? process.env.DESK_PET_OPEN_URL
+  : 'https://claude.ai/code';
 /** 协议行前缀（与 helper-process.ts 的 BRIDGE_PREFIX 一致） */
 const BRIDGE_PREFIX = 'dsh-pet-bridge:';
 
@@ -687,6 +694,15 @@ function traySetPetDisplay(id, display) {
   });
 }
 
+/** 退出整个桌宠（Claude Code 模式）：请宿主服务停机，宿主收尾时会停掉本进程；宿主不应答就自己退 */
+function trayQuitHost() {
+  fetch(ORIGIN + '/shutdown', { method: 'POST' })
+    .catch((e) => {
+      console.error('[dsh-pet-desktop-helper] tray shutdown failed:', String(e && e.message ? e.message : e));
+    })
+    .finally(() => setTimeout(() => app.exit(0), 3000).unref?.());
+}
+
 /** 托盘图标：包内 logo 缩到 16×16（macOS 要模板图，否则深色菜单栏下看不见） */
 function trayIcon() {
   const file = path.join(__dirname, '..', '..', 'assets', 'logo.png');
@@ -726,19 +742,21 @@ async function startTray() {
         display: String((pet && pet.display) || ''),
       }))
       .filter((pet) => pet.id);
-    if (!pets.length) return; // 配置里没有任何宠物：没有可切换的对象，不建托盘
+    // Claude Code 模式：桌宠由 hook 在后台拉起、没有终端可按 Ctrl+C，托盘是唯一的退出口
+    if (!pets.length && OPEN_TARGET !== 'claude') return; // 配置里没有任何宠物：没有可切换的对象，不建托盘
+    const items = pets.map((pet) => ({
+      label: pet.name || pet.id,
+      type: 'checkbox',
+      checked: isDesktopDisplay(pet.display),
+      click: () => traySetPetDisplay(pet.id, toggleDisplay(pet.display)),
+    }));
+    if (OPEN_TARGET === 'claude') {
+      if (items.length) items.push({ type: 'separator' });
+      items.push({ label: '退出桌宠', click: () => trayQuitHost() });
+    }
     tray = new Tray(trayIcon());
-    tray.setToolTip('dsh-pet 桌面宠物');
-    tray.setContextMenu(
-      Menu.buildFromTemplate(
-        pets.map((pet) => ({
-          label: pet.name || pet.id,
-          type: 'checkbox',
-          checked: isDesktopDisplay(pet.display),
-          click: () => traySetPetDisplay(pet.id, toggleDisplay(pet.display)),
-        })),
-      ),
-    );
+    tray.setToolTip(OPEN_TARGET === 'claude' ? 'Claude Code 桌宠' : 'dsh-pet 桌面宠物');
+    tray.setContextMenu(Menu.buildFromTemplate(items));
     // Windows 上 setContextMenu 只接管右键，左键默认什么都不做（macOS 相反：左键即弹菜单）
     if (TRAY_PLATFORM.leftClickPopsMenu) tray.on('click', () => tray.popUpContextMenu());
   } catch (e) {
@@ -929,8 +947,15 @@ app.whenReady().then(() => {
   //     被单实例锁拦下、宿主收到 second-instance 后 focusPrimaryWindow()；未运行则协议直接把应用拉起来。
   //     比 spawn 宿主 exe 干净——不必处理 ELECTRON_RUN_AS_NODE（spawn 继承它就成了 node 模式，起不了界面）
   //     与安装路径探测。
+  //   claude（Claude Code 模式）→ 本地服务没有网页可看，改为打开 Claude Code 页面。
   //   site（dsh web / 独立模式）→ 原行为：系统默认浏览器打开站点。
   ipcMain.on('pet:open-site', (event, payload) => {
+    if (OPEN_TARGET === 'claude') {
+      shell.openExternal(CLAUDE_OPEN_URL).catch((error) => {
+        console.error('[dsh-pet-desktop-helper] open Claude Code failed:', error);
+      });
+      return;
+    }
     const url = payload && typeof payload === 'object' ? String(payload.url || '') : '';
     if (!/^https?:[/][/]/.test(url)) return;
     if (OPEN_TARGET === 'desktop') {

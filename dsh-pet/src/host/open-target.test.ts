@@ -35,15 +35,17 @@ describe('「打开网站」按宿主形态自动分派', () => {
       '宿主必须用 process.versions.electron 判定形态（桌面应用以 ELECTRON_RUN_AS_NODE 跑，该字段仍在；dsh web 是纯 Node）',
     );
     assert.ok(
-      /DSH_PET_OPEN_TARGET: isDesktopHost\(\) \? 'desktop' : 'site'/.test(host),
+      /DSH_PET_OPEN_TARGET: openTargetOf\(ctx\) \?\? \(isDesktopHost\(\) \? 'desktop' : 'site'\)/.test(host),
       'launchHelper 必须把形态注入 Helper（否则桌面宿主下仍只会打开浏览器站点）',
     );
   });
 
   test('helper 主进程：desktop 走 dsh:// 协议，site 保持原行为', () => {
     assert.ok(
-      /const OPEN_TARGET = process\.env\.DSH_PET_OPEN_TARGET === 'desktop' \? 'desktop' : 'site'/.test(main),
-      "main.js 必须把非 'desktop' 一律当 'site'（旧宿主 / 独立模式 / 手写 start-desktop 行为不得变）",
+      /const OPEN_TARGET = \['desktop', 'claude'\]\.includes\(process\.env\.DSH_PET_OPEN_TARGET\)\s*\?\s*process\.env\.DSH_PET_OPEN_TARGET\s*:\s*'site'/.test(
+        main,
+      ),
+      "main.js 必须把 'desktop' / 'claude' 以外一律当 'site'（旧宿主 / 独立模式 / 手写 start-desktop 行为不得变）",
     );
     assert.ok(/openTarget: OPEN_TARGET/.test(main), '形态要沿窗口 query 透到渲染端（文案在那里决定）');
     assert.ok(/shell\.openExternal\('dsh:\/\/open'\)/.test(main), '桌面宿主必须走 dsh://open 唤起应用窗口');
@@ -63,16 +65,33 @@ describe('「打开网站」按宿主形态自动分派', () => {
 
   test('helper 渲染端：文案随形态变，动作名不变', () => {
     assert.ok(
-      /const OPEN_TARGET = params\.get\('openTarget'\) === 'desktop' \? 'desktop' : 'site'/.test(constants),
+      /const OPEN_TARGET = \['desktop', 'claude'\]\.includes\(params\.get\('openTarget'\)\) \? params\.get\('openTarget'\) : 'site'/.test(
+        constants,
+      ),
       "constants.js 必须从 query 读形态且默认 'site'",
     );
     assert.ok(
-      /label: OPEN_TARGET === 'desktop' \? '打开 DeepSeek Harness' : '打开网站', action: 'open-site'/.test(sprite),
-      '菜单文案要跟着变，但 action 仍是 open-site（另一端只认这个动作名）',
+      /OPEN_TARGET === 'desktop' \? '打开 DeepSeek Harness' : OPEN_TARGET === 'claude' \? '打开 Claude Code' : '打开网站'/.test(
+        constants,
+      ),
+      '菜单文案要跟着形态变',
+    );
+    assert.ok(
+      /label: OPEN_SITE_LABEL, action: 'open-site'/.test(sprite),
+      '文案可变，但 action 仍是 open-site（另一端只认这个动作名）',
     );
   });
 
-  test('独立模式不注入该变量 → 自动回落 site（不破坏"不打开 DSH 也能养桌宠"）', () => {
-    assert.ok(!/DSH_PET_OPEN_TARGET/.test(standaloneContext), '独立模式必须不注入形态：默认 site，行为与以前一致');
+  test('独立模式不直接注入该变量：只经 ctx.openTarget 声明（缺省回落 site，不破坏"不打开 DSH 也能养桌宠"）', () => {
+    assert.ok(!/DSH_PET_OPEN_TARGET/.test(standaloneContext), '独立模式不得绕过宿主直接写环境变量');
+    assert.ok(
+      /options\.openTarget \? \{ openTarget: options\.openTarget \} : \{\}/.test(standaloneContext),
+      '只有调用方显式给出 openTarget（Claude Code 模式）才声明，缺省不带该字段',
+    );
+  });
+
+  test('Claude Code 形态：打开 Claude Code 页面、菜单不出余额', () => {
+    assert.ok(/OPEN_TARGET === 'claude'\) \{[\s\S]*?shell\.openExternal\(CLAUDE_OPEN_URL\)/.test(main));
+    assert.ok(/if \(!CLAUDE_HOST\) tools\.push\(\{ label: '查看余额', action: 'show-balance' \}\)/.test(sprite));
   });
 });

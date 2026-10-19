@@ -43,18 +43,21 @@ export interface StandaloneTextBlock {
 }
 
 /**
- * 流式文本拼装：只收集文本块（与调用方 `blocks().filter(b => b.type === 'text')` 的用法一致）。
- * 独立模式只会拿到空流（没有模型后端），这里保持最小可用实现。
+ * 流式文本拼装：只收集文本（与调用方 `blocks().filter(b => b.type === 'text')` 的用法一致）。
+ * 认 dsh-llm 流协议里的 `text-delta`（Claude Code 后端 `../claude-llm` 吐的就是它）与 `finish`；
+ * 也收整块的 `{ type: 'text' }`。其余块（推理、工具调用、用量）忽略。
  */
 export class BlockAssembler {
   private readonly chunks: string[] = [];
+  /** 终止原因（`finish` 块带来；调用方在没有正文时读它报失败原因） */
+  finish: unknown = undefined;
 
-  /** 收集一个块；非文本块（工具调用等）在独立模式下被忽略 */
+  /** 收集一个块 */
   push(chunk: unknown): void {
-    if (chunk !== null && typeof chunk === 'object' && (chunk as { type?: unknown }).type === 'text') {
-      const text = (chunk as { text?: unknown }).text;
-      if (typeof text === 'string') this.chunks.push(text);
-    }
+    if (chunk === null || typeof chunk !== 'object') return;
+    const { type, text, reason } = chunk as { type?: unknown; text?: unknown; reason?: unknown };
+    if ((type === 'text' || type === 'text-delta') && typeof text === 'string') this.chunks.push(text);
+    else if (type === 'finish') this.finish = reason;
   }
 
   /** 当前已拼装的块列表 */

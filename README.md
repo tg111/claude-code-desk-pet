@@ -1,132 +1,131 @@
-# dsh-pet 🐾
+# desk-pet：Claude Code 的桌面宠物 🐾
+
+> 本仓库 fork 自 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)（原版是 DeepSeek Harness 的桌宠，素材与绝大部分代码来自原作者），在它的基础上改成了 **Claude Code** 的桌宠。按原项目的二创约定，任何介绍、展示、分发本作品的地方都请保留原作者地址：<https://github.com/PC2005-cloud/dsh-pet>。
+
+一只住在你桌面上的透明小窗宠物，**跟着 Claude Code 干活**：你一回车它就开始思考，Claude 调工具它就忙前忙后，要你批准权限时它原地踱步张望，一轮做完它雀跃庆祝，出错了它垂头叹气——头顶气泡还会显示 Claude 的 TodoWrite 清单里正在做的那一步。
+
+平时它待机呼吸、随机做动作（打瞌睡、玩魔方、吃火锅……一百余个手绘风透明动画无缝衔接）、在屏幕上溜达、被点会 Q 弹、能拖拽甩抛反弹；闲下来会碎碎念，右键还能和它聊天——碎碎念和对话直接用 **Claude Code 本身**（`claude -p`）生成，用的是你在 Claude Code 里的登录，不需要另配 API key。
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/dsh-pet"><img alt="npm version" src="https://img.shields.io/npm/v/dsh-pet?label=npm&color=blue"></a>
-  <a href="https://www.npmjs.com/package/dsh-pet"><img alt="npm monthly downloads" src="https://img.shields.io/npm/dm/dsh-pet?label=%E6%9C%88%E4%B8%8B%E8%BD%BD&color=brightgreen"></a>
-  <a href="https://www.npmjs.com/package/dsh-pet"><img alt="total downloads" src="https://img.shields.io/npm/dt/dsh-pet?label=%E6%80%BB%E4%B8%8B%E8%BD%BD&color=success"></a>
-  <a href="https://github.com/PC2005-cloud/dsh-pet"><img alt="stars" src="https://img.shields.io/github/stars/PC2005-cloud/dsh-pet?style=social"></a>
-  <a href="https://github.com/PC2005-cloud/dsh-pet/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/github/license/PC2005-cloud/dsh-pet?color=orange"></a>
-  <a href="https://awesome-dsh-plugin.com"><img alt="awesome dsh plugin" src="https://awesome-dsh-plugin.com/badge.svg"></a>
-  <a href="https://github.com/PC2005-cloud/dsh-pet"><img alt="repo size" src="https://img.shields.io/github/repo-size/PC2005-cloud/dsh-pet"></a>
-  <a href="https://github.com/PC2005-cloud/dsh-pet/issues"><img alt="issues" src="https://img.shields.io/github/issues/PC2005-cloud/dsh-pet"></a>
-  <img alt="platform" src="https://img.shields.io/badge/platform-DeepSeek%20Harness%20Web-8A2BE2">
-  <img alt="assets" src="https://img.shields.io/badge/assets-dynamic%20animations-ff69b4">
+  <img src="dsh-pet/assets/preview/gongzuozhuangtai-sikao-maopao.gif" width="160" alt="思考" title="思考（UserPromptSubmit）">
+  <img src="dsh-pet/assets/preview/gongzuozhuangtai-manglu-dianan.gif" width="160" alt="工作" title="工作（PreToolUse）">
+  <img src="dsh-pet/assets/preview/gongzuozhuangtai-yuandi-duobu-zhangwang.gif" width="160" alt="等待确认" title="等待确认（权限申请）">
+  <img src="dsh-pet/assets/preview/gongzuozhuangtai-queyue-qingzhu.gif" width="160" alt="完成" title="完成（Stop）">
+  <img src="dsh-pet/assets/preview/gongzuozhuangtai-chuitou-tanqi-maohan.gif" width="160" alt="出错" title="出错（StopFailure）">
 </p>
-
-一只住在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 里的桌面宠物：待机呼吸、随机动作（打瞌睡、玩魔方、吃火锅……）、左右转向、屏幕漫游、点击 Q 弹、拖拽甩抛反弹、右键菜单点播——一百余个手绘风透明动画随时无缝衔接；还能跟随 DSH 会话事件切换工作状态动画、按档位播放余额动画 + 头顶气泡、碎碎念与对话聊天、窗口失焦时弹系统通知。可多开同屏，能脱离浏览器住上**桌面**（透明置顶小窗），也能自己添加**全新宠物种类**（pet pack）。
-
-这不是一个普通插件，而是**完整的三件套项目**：
-
-```
-① 提示词（配方）    →  ② 素材生成链（引擎）  →  ③ 插件（成品）
-AI 生成动画的配方     源视频 → 透明动画的管线    运行在 DSH 里的宠物
-```
-
-任何人 clone 本仓库，都可以**从零生成自己的桌面宠物**——换角色、换动作、换风格，全流程可复现。
 
 ---
 
-## 快速开始（安装插件）
+## 快速开始
 
-装法取决于你在用哪个 DSH：
+需要：Node.js ≥ 22.12、[pnpm](https://pnpm.io)、Claude Code，以及一个图形桌面（Windows / macOS / Linux）。
 
-### 🪟 桌面应用（Electron 版）
-
-直接在应用内「插件管理」页的安装框里填 `dsh-pet`，不用开终端；需要在终端里操作插件时，用桌面应用自带的那份 CLI。
-
-### 🌐 `dsh web`
-
-> 以下命令都在你的**命令行终端**（PowerShell / CMD 等）中运行。前提是 DSH 环境已就绪：
+### ① 构建并安装桌宠程序（`desk-pet` 命令）
 
 ```sh
-# ① 前置要求：确认 Node.js 已安装
-node -v
-
-# ② 安装 DSH 启动器与 pnpm（已装可跳过；装完请重新打开终端）
-npm install -g @deepseek-ai/dsh pnpm
-dsh --version   # 验证 dsh 命令可用
-
-# ③ 安装本插件（web 模式用 --profile web）
-dsh plugin --profile web add dsh-pet
-```
-
-装完**重开桌面应用**（`dsh web` 用户则重启 `dsh web`）才生效——运行中的进程持有内存里的旧插件。宠物出现在界面右上角（默认配置角落，可在设置页修改）。
-
-> **兼容性**：本插件当前在 dsh **`0.2.1-rc.2`** 下开发并测试（`dsh --version` 可查看你的版本）。建议使用相同版本；其他版本如遇问题欢迎反馈。
-
-### 从源码安装（clone 本仓库后）
-
-`lib/` 构建产物不入库，clone 后需要先构建再安装：
-
-```sh
-# ① clone 本仓库，进入插件目录
-git clone https://github.com/PC2005-cloud/dsh-pet.git
+git clone https://github.com/tg111/dsh-pet.git
 cd dsh-pet/dsh-pet
-
-# ② 安装依赖
-npm install
-
-# ③ 构建（完整 lib：tsdown → lib + 桌面共享核心 + 类型声明）
-npm run build       # 必须手动跑一次（克隆后 npm install 不再自动构建）
-
-# ④ 安装到 DSH（file: 指向**插件目录**——上面 cd 进去的那一层，用构建好的 lib）
-#    --profile 填实际在用的那个：dsh web → web；
-#    桌面应用（Electron 版）改用应用内「插件管理」安装，见上方快速开始
-dsh plugin --profile web add file:D:/path/to/dsh-pet/dsh-pet
+pnpm install
+npm run build        # 产出 lib/（构建产物不入库，clone 后必须跑一次）
+npm link             # 把 desk-pet 命令装到 PATH 上（Windows 下同样可用）
+desk-pet --check     # 体检：配置、Electron、图形环境
 ```
 
-> 注：`npm run build`（即 `scripts/prepare.js`）才产出**完整可安装**的 lib——除 tsdown 构建外还构建桌面共享核心（`shared-core.js`）、生成类型声明并收敛发布 `files` 清单；裸 `tsdown` 构建会缺桌面运行时与类型。发布与打包（`npm publish` / `npm pack`）时由 `prepack` 自动调用它，克隆仓库后需手动跑一次。
+> 第一次启动会自动下载 Electron（约 100MB，落在 `~/.desk-pet/electron`，同一版本只下一次；默认走 npmmirror 镜像，网络受限时可设 `DSH_PET_ELECTRON_MIRROR` 换镜像）。
 
-### 安装后你会看到什么
+### ② 在 Claude Code 里装插件（hook 转发 + 自动启动）
 
-默认配置是 `display: "both"`（浏览器与桌面都显示），所以重开 DSH 之后会依次出现两处，不必手动开：
+在 Claude Code 里执行：
 
-1. **浏览器端先出现。** 宠物落在界面右上角（默认角落，设置页可改），此时桌面上还是空的。
-2. **宿主自动补桌面运行时。** 本机没有 Electron 时，插件会自己下载一份（落在 `~/.dsh/electron`，同一版本只下一次；默认走 npmmirror 镜像）。进度直接打在 DSH 的控制台里，形如：
+```
+/plugin install desk-pet --marketplace tg111/dsh-pet
+```
 
-   ```
-   [dsh-pet] Electron not found, downloading to <用户目录>/.dsh/electron/electron.exe ...
-   [dsh-pet] Electron not found, downloading v43.3.0 (win32-x64) ...
-   [dsh-pet] downloading 42.3MB / 104.1MB
-   [dsh-pet] download complete (37.5s), extracting to <用户目录>/.dsh/electron ...
-   ```
+（旧版 Claude Code 分两步：`/plugin marketplace add tg111/dsh-pet`，再 `/plugin install desk-pet@desk-pet`。）
 
-   这一步在**后台**进行，浏览器里的宠物照常可用；要等多久取决于网速（几十秒到几分钟），期间不用管它。
-3. **桌面端随后出现。** 解压完自动拉起桌面 Helper，同一只宠物以透明窗形式落到桌面上——**此时屏幕上一共两只**：浏览器里一只、桌面上那只，共用同一份配置与同一套动画。
-4. **想只留一只。** 两条路都行，改完即时生效：
-   - **设置页**：选中该宠物 →「显示位置」下拉框 → 仅浏览器 / 仅桌面 / 两者都显示 / 都不显示；
-   - **宠物右键**：菜单里的「显示位置」子菜单 → 仅网页 / 仅桌面 / 两者 / 都不（不用回设置页）。
+装好后**新开一个 Claude Code 会话**：会话开始时插件会在后台把桌宠拉起来（右上角出现宠物），之后每个 hook 事件都会转发给它。多个会话共用同一只桌宠。
 
-> 已经装过 Electron（或设了 `DSH_PET_ELECTRON_PATH` 指向现成可执行文件）时，第 2 步会跳过，桌面端几乎立刻出现。下载失败**只影响桌面模式**：控制台会给出提示，浏览器里的宠物不受影响；网络受限时可以设 `DSH_PET_ELECTRON_MIRROR` 换镜像、`DSH_PET_ELECTRON_VERSION` 指定版本，重启后再试。
+### ③ 不想装插件？手动配 hooks 也行
 
-## 💬 反馈与发版节奏
+把下面这段合并进 `~/.claude/settings.json`（路径换成你 clone 的位置），效果与插件完全相同：
 
-欢迎提 [issue](https://github.com/PC2005-cloud/dsh-pet/issues) 与 PR——bug、体验问题、优化想法都行。但动手前请先翻一眼 [提交记录](https://github.com/PC2005-cloud/dsh-pet/commits/main)，确认不是已经修掉的同款问题（有些问题可能已经在 `main` 上修好了，只是还没发版）。
+```jsonc
+{
+  "hooks": {
+    "SessionStart":       [{ "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
+    "UserPromptSubmit":   [{ "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
+    "PreToolUse":         [{ "matcher": "*", "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
+    "PostToolUse":        [{ "matcher": "*", "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
+    "PostToolUseFailure": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
+    "Notification":       [{ "matcher": "*", "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
+    "Stop":               [{ "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
+    "StopFailure":        [{ "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
+    "SessionEnd":         [{ "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }]
+  }
+}
+```
 
-- **小修不单独发版**：不影响使用的小 bug 与优化会**累计**到下一个版本一起发，避免版本更迭过于频繁。所以「`main` 上已经修了」不等于「你装的这版已经包含」——`latest` 没更新时，以 `main` 的提交记录为准。
-- **想立刻用上未发布的修复**：按上面的「从源码安装」把插件指向本地仓库即可；注意**宿主半侧**的代码改动要**重开 DSH** 才生效（浏览器半侧刷新页面即可）。
-- **报 bug 时请带上**：插件版本、`dsh` 版本、操作系统、复现步骤（有日志或截图更好）。
+这种方式下转发脚本会优先用同仓库里构建好的 `dsh-pet/lib/standalone.js` 启动桌宠，连 `npm link` 都可以省掉。
 
-## 插件功能
+### 退出 / 停用
 
-- **纯粹的桌宠**：不做天气、监控等无关功能，不碰 DSH 内核；可选能力只有下面这些（余额 / 碎碎念 / 对话 / 工作状态 / 系统通知）
-- **动画链**：每个动画（含待机）播完即按权重选下一个（默认 idle 10 / turn 5 / move 5 + 分类权重，`config.jsonc` 可调），首尾相接
-- **事件动画**：余额 / 碎碎念 / 工作状态按档位触发专属动画；档位支持候选数组——触发时档内随机、循环播放自动轮换，避免连播同一段
-- **多开**：同时显示多个宠物，各自独立大小与位置（设置页「桌宠配置」添加/删除）
-- **屏幕漫游**：朝朝向方向行走，先探测空间、不走出屏幕（多屏按各屏边界判定）
-- **点击 / 拖拽 / 甩抛**：点击有回应动画并 Q 弹挤压；拖拽过阻尼弹簧跟手，甩出即抛物线飞行、屏幕边缘反弹、落地摩擦停稳并 Q 弹一下；温柔放下原地停住；两端同一套纯函数物理与挤压曲线（`dsh-pet/src/shared/physics.ts`）
-- **右键菜单**：「动作 → 分类 → 具体动画」任意点播（移动类动画点播会真实行走一段）；工具项——浏览器端：碎碎念 / 对话 / 回到初始位置；桌面端：+ 打开网站、查看余额（余额启用时显示）、重载配置（改完配置文件直接右键重载全部桌面宠物，不必回设置页点保存）
-- **「打开网站」按宿主自动分派**：宠物宿主是 **DSH 桌面应用**时，该项自动变成「打开 DeepSeek Harness」——用应用自注册的 `dsh://open` 协议把桌面应用主窗口唤到前台（已运行则前置、未运行则拉起）；宿主是 `dsh web` / 独立模式时，仍是系统默认浏览器打开站点
-- **朝向与落地**：全部动画可镜像（可朝左 / 朝右）；脚底线统一，宠物始终站在地面上
-- **流畅切换**：双缓冲交叉淡入，切换无空白帧
-- **余额展示**：按已用百分比分档播余额动画 + 头顶联想气泡（10 秒自动消失）；DeepSeek 显示账户余额，OpenCode Zen Go 与 Command Code 显示最紧迫的一个额度窗口；**未登记余额接口的服务商改为弹文字说明**（不静默）；按宠物独立开关
-- **碎碎念与对话**：碎碎念按周期自动生成一句（说话动画 + 气泡，也可手动触发）；对话在右键弹输入框与宠物聊天，记忆持久化（浏览器 / 桌面共享同一份）
-- **工作状态联动**：监听 DSH 会话事件，切「思考 / 工作 / 整理 / 等待 / 成功 / 出错」档位动画 + 常驻气泡；目标多轮任务只在真正收尾轮庆祝
-- **系统通知**：窗口失焦时弹系统 toast（对话完成 / 生成失败 / 输出截断 / 权限申请 / 用户选择）
-- **桌面模式（可选）**：每只宠物开一个独立透明置顶局部小窗，与浏览器严格同行为、共用同一份素材与纯逻辑（见下节）
-- **pet pack（额外宠物种类）**：`pet/` 下建 `种类名-config.json` + `种类名-animation/` 即新增独立动画池与素材的全新种类，多实例共享素材（见「配置 → 方式四」）
-- **自定义动画**：往 `main-animation/webm/` 放 VP9-Alpha 的 `.webm` 即为新动画，优先于包内素材
-- **无障碍**：支持 `prefers-reduced-motion`（减少动效时跳过 Q 弹挤压与淡入切换）
+- **退出桌宠**：系统托盘图标 →「退出桌宠」（或前台运行时 `Ctrl+C`、`POST /shutdown`）。下一个 Claude Code 会话开始时它会再次出现
+- **只转发、不自动启动**：环境变量 `DESK_PET_AUTOSTART=0`（之后用 `desk-pet` 手动启动）
+- **彻底停用**：`/plugin` 里禁用 desk-pet，或设 `DESK_PET_DISABLE=1`
+
+## 它怎么知道 Claude Code 在干嘛
+
+```
+Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code/hook──▶ desk-pet 进程 ──▶ 透明小窗动画 + 气泡
+                                   （零依赖，<1s，失败静默）     （读 ~/.desk-pet/server.json 找端口）
+```
+
+| Claude Code hook | 桌宠档位 | 动画 |
+| --- | --- | --- |
+| `UserPromptSubmit` | 思考 | 思考冒泡 |
+| `PreToolUse` | 工作（`TodoWrite` 顺带更新气泡里的任务文案） | 忙碌点按 |
+| `PreToolUse` · `AskUserQuestion` | 等待（等你选） | 原地踱步张望 |
+| `PostToolUse` / `PostToolUseFailure` | 整理 | 清点归档 |
+| `Notification`（权限确认 / MCP 征询） | 等待 | 原地踱步张望 |
+| `Stop` | 成功（几秒后回到日常） | 雀跃庆祝 |
+| `StopFailure`（API 出错、限流等） | 出错 | 垂头叹气冒汗 |
+| `Notification`（等你输入）/ `SessionEnd` | 回到空闲 | 日常动作 |
+
+实现上，桌宠进程把 hook 载荷**翻译成原插件本来就消费的会话事件**（`src/standalone/claude-code.ts`），工作状态的聚合、多会话优先级、终态自动过期、任务文案这些逻辑与原版一行未改。桌宠自己调 `claude -p` 生成碎碎念时会关掉 hook 并带上 `DESK_PET_INTERNAL=1`，不会把自己的闲聊当成你的会话。
+
+## 常用环境变量
+
+| 变量 | 作用 |
+| --- | --- |
+| `DESK_PET_HOME` | 数据目录（默认 `~/.desk-pet`；配置、对话记忆、Electron、日志都在这里） |
+| `DESK_PET_MODEL` | 碎碎念 / 对话用的模型别名（默认 `haiku`，可填 `sonnet` / `opus`） |
+| `DESK_PET_CLAUDE_BIN` | `claude` 可执行文件路径（默认走 PATH） |
+| `DESK_PET_CMD` | 转发脚本自动启动桌宠时用的整条命令（默认找同仓库的 `lib/standalone.js`，再找 PATH 上的 `desk-pet`） |
+| `DESK_PET_AUTOSTART=0` / `DESK_PET_DISABLE=1` | 只转发不自动启动 / 完全停用 |
+| `DESK_PET_OPEN_URL` | 右键「打开 Claude Code」打开的地址（默认 `https://claude.ai/code`） |
+| `DESK_PET_PORT` | 转发脚本直接用这个端口（不读 `server.json`） |
+
+## 没出现怎么办
+
+1. 看日志：`~/.desk-pet/desk-pet.log`（由 hook 自动启动时的输出）
+2. 在终端里前台跑一次：`desk-pet`，看横幅里的「桌面小窗」是否为 1 只、有没有报错；`desk-pet --check` 体检
+3. 提示找不到 `desk-pet` 命令：回到「快速开始 ①」执行 `npm link`，或设 `DESK_PET_CMD="node /path/to/dsh-pet/dsh-pet/lib/standalone.js"`
+4. 排查 hook 有没有到：`DSH_PET_STANDALONE_DEBUG=1 desk-pet` 前台运行，每条 hook 都会打一行 `hook PreToolUse → tool/call`
+5. Linux 无图形环境（SSH / 容器）会自动跳过桌面窗口；远程桌面 / Xvfb 可设 `DSH_PET_DESKTOP_FORCE=1`
+
+## 功能一览
+
+- **跟着 Claude Code 干活**：思考 / 工作 / 整理 / 等待 / 成功 / 出错六档动画 + 头顶气泡；多个会话同时跑时按优先级展示（等你确认 > 出错 > 工作 > 思考 > 整理 > 成功），子代理不会弹完成通知
+- **碎碎念与对话**：走 `claude -p`，人设见配置里的 `whisperPrompt`；右键「对话」与它聊天，记忆持久化在 `~/.desk-pet/dsh-pet/memory.json`；还会从表情包池里挑一张配图
+- **动画链**：每个动画（含待机）播完即按权重选下一个，首尾相接；双缓冲交叉淡入，切换无空白帧
+- **屏幕漫游 / 点击 / 拖拽 / 甩抛**：朝朝向方向行走、不走出屏幕；拖拽阻尼弹簧跟手，甩出抛物线飞行、屏幕边缘反弹、落地 Q 弹
+- **右键菜单**：打开 Claude Code、碎碎念、对话、回到初始位置、显示位置、重载配置，以及「动作 → 分类 → 具体动画」任意点播
+- **多开**：同时显示多只宠物，各自独立大小与位置；还能用 pet pack 添加**全新种类**（见下文「配置 → 方式四」）
+- **自定义动画**：往 `~/.desk-pet/dsh-pet/main-animation/webm/` 放 VP9-Alpha 的 `.webm` 即为新动画，优先于包内素材
+- **托盘**：开关每只宠物的桌面显示、退出桌宠
+- **无障碍**：支持 `prefers-reduced-motion`
+
+> 原版的 **DSH 插件形态**（浏览器浮层、设置页、余额、`/balance` `/pet` `/chat` 命令）代码仍完整保留在 `dsh-pet/src/host`、`dsh-pet/src/client` 中，仍可按原版方式装进 DeepSeek Harness；下文凡标注「仅 DSH 内运行」的都属于那一形态。
 
 ## 🔌 对外接口（供其他插件调用）
 
@@ -134,7 +133,7 @@ dsh plugin --profile web add file:D:/path/to/dsh-pet/dsh-pet
 
 - **能做什么**：让它说一句指定的话、播一段指定动画、与它对话；读它当前说的话、工作状态、系统通知与余额
 - **为什么开放**：桌宠不该只是个摆设——比如一个「女仆」插件巡检验完想说句话，就能让桌宠当它的「实体」开口；也方便任何人基于它做二次开发
-- **怎么调**：挂在 DSH 自己的 Web 服务上（前缀 `/dsh-pet-7340`，只监听本机、无鉴权）。动作类接口只回 `{ok}`，数据统一从 `GET /state` 读
+- **怎么调**：基址 `http://127.0.0.1:<端口>/dsh-pet-7340`（端口见 `~/.desk-pet/server.json`，默认 3080；只监听本机、无鉴权）。动作类接口只回 `{ok}`，数据统一从 `GET /state` 读。在 Claude Code 里，你甚至可以让 Claude 自己 `curl` 一下，让桌宠替它说句话
 
 三个相关文件：
 
@@ -142,42 +141,19 @@ dsh plugin --profile web add file:D:/path/to/dsh-pet/dsh-pet
 - [`openapi.yaml`](openapi.yaml) —— 完整契约（OpenAPI 3.1，可直接导入 Swagger UI / Postman）
 - [`tools/api-tester.html`](tools/api-tester.html) —— 桌宠控制台：扮演第三方消费方的示例页面，可直观试用（`node tools/api-tester.cjs` 启动）
 
+
 ## 兼容性
 
-- **操作系统**：Windows / Linux / macOS 三端均可运行——浏览器 overlay 与桌面模式（Electron 透明置顶窗）行为完全一致；Electron 按平台自动探测/下载（`electron.exe` / `Electron.app` / linux 单文件），无需手动安装
+- **Claude Code**：需要支持插件与 hooks 的版本（2.1 及以上实测）；hook 转发脚本只用 Node 内置模块（Claude Code 自带 Node 环境即可）
+- **操作系统**：Windows / Linux / macOS 三端均可运行（Electron 透明置顶窗）；Electron 按平台自动探测/下载（`electron.exe` / `Electron.app` / linux 单文件），无需手动安装
 - **无头 / 无桌面环境**：支持 Linux headless 等无图形会话——桌面模式自动检测显示环境（Linux 无 `DISPLAY` / `WAYLAND_DISPLAY` 时判定无显示、跳过桌面窗口，仅日志告警），浏览器 overlay 不受影响
 - **浏览器**：浏览器 overlay 兼容 **Chromium 内核（Chrome / Edge 等）与 Firefox**——透明动画依赖 VP9-Alpha webm，三者均已实测透明确认；**不支持 Safari**（macOS 不认 webm alpha，透明渲染为黑底）——macOS 用 `.mov` 素材（GitHub Release `assets-mov`），下载放入 + 改 `ANIMATION_EXT` 变量即可（见「②.5 Safari/HEVC 兼容素材」）
 - **多显示器**：支持多屏环境——跨屏漫游/抛掷以各屏工作区为界，异构缩放（各屏 DPI 不同）、任务栏条带、屏幕之间空洞均正确判定（横屏 / 竖屏 / 上下叠放皆可）
 
-## 🪟 桌面模式（可选，脱离浏览器）
 
-插件内建**双模式**：安装后默认会拉起**独立透明置顶小窗**——为每只桌面宠物各开一个局部窗口（跟随宠物移动，**不铺满屏幕**），与浏览器 overlay 严格同行为、功能完全对齐：
+## ⚙️ 余额展示（Balance，仅 DSH 内运行）
 
-- **依赖**：首次启动自动探测/下载 Electron（`~/.dsh/electron/`，也可 `cd dsh-pet && npm run ensure:electron` 手动触发）；缺失时仅日志告警，不影响浏览器形态
-- **开关 = 每只宠物的必填字段 `display`**：`web` = 仅浏览器 / `desktop` = 仅桌面 / `both` = 两者 / `none` = 都不显示；桌面模式渲染 display 含 desktop 的**全部**宠物（多开同屏，与浏览器一致），设置页「桌宠配置」编辑即时生效
-- 桌面端数据走独立进程管道，不依赖 DSH 的 HTTP 路由，不受 web 访问闸门影响
-- 本地调试：`cd dsh-pet && npm run start:desktop -- http://127.0.0.1:3080/dsh-pet-7340/config`（无宿主时自动回落 HTTP 路径）
-
-## 🧍 独立运行（完全不打开 DSH）
-
-连 DSH 都不用开：插件的宿主半边跑在伪 ctx 上，由一个本机 HTTP 服务接管路由（**路由表仍是插件那一份**）。
-
-```sh
-npm install -g dsh-pet        # 必须 npm 装；dsh plugin add 装进 profile，bin 不在 PATH 上
-dsh-pet-standalone            # http://127.0.0.1:3080/dsh-pet-7340/（占用则顺延）
-dsh-pet-standalone --check    # 只体检
-dsh-pet-standalone --port 3100
-
-npm run build && npm run standalone   # 仓库里（先构建）
-```
-
-- **能用**：动画链、点击/拖拽/甩抛、右键菜单、多开、自定义动画与表情包、pet pack。
-- **不可用**：余额、碎碎念、对话、系统通知——返回带 `reason` 的结构化失败（见 [`API.md`](API.md)）。
-- **配置**：与 DSH 同一份（`$DSH_HOME/dsh-pet/main-config.jsonc` → 包内默认）。
-- **只显示 `display` 含 `desktop`/`both` 的实例**；端口默认 3080；`Ctrl+C` 或 `POST /shutdown` 退出。
-- **与 DSH 内运行可同时开**，但共用 `%APPDATA%\dsh-pet-electron-helper`，可能互相踩缓存（仅告警）。
-
-## ⚙️ 余额展示（Balance）
+> Claude Code 没有余额接口：Claude Code 模式下默认关闭（`balanceEnabled: false`），右键菜单也不出「查看余额」。以下是在 DSH 里运行时的行为。
 
 按 `eventsRefreshSec.balance`（秒）周期拉取当前服务商的余额/用量数据，每次刷新按档位触发一次余额动画，并在宠物头顶弹出**联想气泡**（随宠物大小等比缩放，10 秒自动消失）：
 
@@ -190,16 +166,17 @@ npm run build && npm run standalone   # 仓库里（先构建）
 
 ## ⚙️ 碎碎念与对话
 
-- **碎碎念**：`pets[i].whisperEnabled` 开启后，按 `eventsRefreshSec.whisper`（秒，默认 300）周期自动生成一句——每只宠物独立周期、独立文案；触发时随机抽 `events.whisper` 动画 + 头顶说话气泡（10 秒消失）。默认开启
+- **模型后端**：Claude Code 模式下走 `claude -p`——用的是你在 Claude Code 里的登录（订阅 / API key / Bedrock / Vertex 都行），不用另配 key；默认 `haiku`，环境变量 `DESK_PET_MODEL=sonnet` 可换。调用时关闭全部工具、MCP 与 hook，也不写进 `/resume` 会话列表；**会计入你的 Claude 用量**
+- **碎碎念**：`pets[i].whisperEnabled` 开启后，按 `eventsRefreshSec.whisper`（秒，默认 900）周期自动生成一句——每只宠物独立周期、独立文案；触发时随机抽 `events.whisper` 动画 + 头顶说话气泡（10 秒消失）。默认开启
 - **手动触发**：右键菜单「碎碎念」随时来一句——不受 `whisperEnabled` 门控（该字段只关自动周期轮询）
-- **对话**：右键菜单「对话」或 `/chat` 命令打开输入框，与宠物聊天——回复走碎碎念同款展示（说话动画 + 气泡）；记忆持久化在 `$DSH_HOME/dsh-pet/memory.json`，浏览器与桌面共享同一份；多宠物时先用 `/pet` 选择对话目标
+- **对话**：右键菜单「对话」打开输入框，与宠物聊天——回复走碎碎念同款展示（说话动画 + 气泡）；记忆持久化在 `~/.desk-pet/dsh-pet/memory.json`，浏览器与桌面共享同一份；多宠物时先用 `/pet` 选择对话目标
 
 ## ⚙️ 工作状态联动（Work Status）
 
-`pets[i].workStatusEnabled` 开启后，宠物跟随 DSH 会话活动切「思考 / 工作 / 整理 / 等待 / 成功 / 出错」六档动画 + 头顶气泡：非终态动画循环播、气泡常驻；成功 / 出错播一遍、气泡 10 秒自动收起。
+`pets[i].workStatusEnabled` 开启后，宠物跟随 Claude Code 会话活动（经 hook，对应关系见上文「它怎么知道 Claude Code 在干嘛」）切「思考 / 工作 / 整理 / 等待 / 成功 / 出错」六档动画 + 头顶气泡：非终态动画循环播、气泡常驻；成功 / 出错播一遍、气泡 10 秒自动收起。
 
 - **档位动画**：`animations.events.workStatus` 数组，索引即档位（勿在中间插入新档，只可追加末尾）
-- **气泡文案**：`workStatusTexts` 每档可配多句随机，任务详情（todo）优先
+- **气泡文案**：`workStatusTexts` 每档可配多句随机，任务详情（Claude Code 的 TodoWrite 清单里正在做的那一项）优先
 - **档位候选数组**：任意档位槽位可写 `string | string[]`——数组 = 档内随机抽 1，循环播放自动轮换、避免连播同一段（余额 / 碎碎念档位同样适用）
 
 ## ⚙️ 配置（大小 / 位置 / 多开）
@@ -208,7 +185,9 @@ npm run build && npm run standalone   # 仓库里（先构建）
 
 > 💡 **两条途径只是编辑入口不同，最终都是同一份用户配置**——配置能力远不止设置页那几个选项：设置页可改大小/位置/边距/显示位置/余额开关/多开，但**手动编写配置文件可以任意自由配置**（动画池、播放权重、事件动画、刷新周期……），只要**格式与包内默认配置 `config.jsonc` 一致**即可，用户配置会**整体覆盖**对应字段的默认值。
 
-### 方式一：设置页（推荐）
+### 方式一：设置页（仅 DSH 内运行）
+
+> Claude Code 模式没有网页设置页：请用方式三直接编辑 `~/.desk-pet/dsh-pet/main-config.jsonc`，改完右键宠物「重载配置」即生效。
 
 DSH 设置 → 「桌宠配置」：
 
@@ -233,11 +212,11 @@ DSH 设置 → 「桌宠配置」：
 
 - 每只宠物：`id`（标识）／ `size`（宽度 px）／ `balanceEnabled`（是否启用余额功能，必填布尔）／ `display`（web/desktop/both/none，必填，见上）／ `position`（corner 四角之一 + marginX/marginY 边距）
 - 余额刷新周期：`eventsRefreshSec.balance`（秒）——余额数据刷新与余额动画触发的间隔，启动时立即触发一次，之后按此周期循环（默认 1800）
-- 设置页的修改保存到用户层 `$DSH_HOME/dsh-pet/main-config.jsonc`（**完整宠物列表**，覆盖包内默认）；「同步」把包内 `config.jsonc` 原文整份写入该文件（等价于回落默认，但文件保留下来、可直接编辑）
+- 设置页的修改保存到用户层 `~/.desk-pet/dsh-pet/main-config.jsonc`（**完整宠物列表**，覆盖包内默认）；「同步」把包内 `config.jsonc` 原文整份写入该文件（等价于回落默认，但文件保留下来、可直接编辑）
 
 ### 方式三：手动编辑配置文件（高级，任意自由配置）
 
-用户层配置文件位于 `$DSH_HOME/dsh-pet/main-config.jsonc`。**它和包内默认配置是同一套格式**——想改什么直接照着 `assets/config.jsonc` 的结构写即可，写错的字段/缺失的字段回落默认，无需（也无法）写完整份。设置页「同步」可直接生成这份完整文件（原文复制包内 `config.jsonc`，注释齐全）：
+用户层配置文件位于 `~/.desk-pet/dsh-pet/main-config.jsonc`。**它和包内默认配置是同一套格式**——想改什么直接照着 `assets/config.jsonc` 的结构写即可，写错的字段/缺失的字段回落默认，无需（也无法）写完整份。设置页「同步」可直接生成这份完整文件（原文复制包内 `config.jsonc`，注释齐全）：
 
 | 字段                   | 作用                                                                                    | 格式与默认一致即可         |
 | ---------------------- | --------------------------------------------------------------------------------------- | -------------------------- |
@@ -254,7 +233,7 @@ DSH 设置 → 「桌宠配置」：
 方式一~三都只调整**默认宠物的实例**（数量/大小/位置），动画池始终是全局一份。要添加**全新种类的宠物**（独立动画池 + 自己的素材），在用户数据根下建 `pet/` 目录：
 
 ```
-$DSH_HOME/dsh-pet/
+~/.desk-pet/dsh-pet/
 ├─ main-config.jsonc           ← 主宠物配置（现有，不动）
 ├─ main-animation/webm/*.webm  ← 主宠物素材（现有，只属于 main）
 └─ pet/
@@ -532,7 +511,7 @@ python encode_thumbs.py      # 转码 640×360 播放变体 → step04/
 插件默认只发布 `.webm`（VP9-alpha），Safari/WKWebView 不认 webm alpha（黑底），macOS 需要在 GitHub Release 下载官方转码的 **HEVC-with-Alpha `.mov`** 素材使用，三步：
 
 1. **下载**：<https://github.com/PC2005-cloud/dsh-pet/releases/tag/assets-mov>（固定 tag，保持最新；zip 解压后文件名与 webm 一一对应）
-2. **放入**：`.mov` 文件放进 `$DSH_HOME/dsh-pet/main-animation/mov/`（pet pack 宠物则是 `pet/<种类名>-animation/mov/`）
+2. **放入**：`.mov` 文件放进 `~/.desk-pet/dsh-pet/main-animation/mov/`（pet pack 宠物则是 `pet/<种类名>-animation/mov/`）
 3. **改变量**：搜 `ANIMATION_EXT`，把 `.webm` 改为 `.mov`——npm 包改产物 `lib/client.js`（桌面端如需再改 `runtime/electron-helper/shared-core.js`）；自构建改源码 `src/shared/constants.ts` 后重新构建
 
 宿主路由已固定双扩展名兜底（白名单 `webm|mov`、MIME、素材根按扩展名分派），无需改宿主。详情见插件 README「macOS 使用 mov」。
@@ -568,6 +547,8 @@ npm publish --tag latest   # prepack 自动执行构建（完整产物 + 收敛 
 三件套按 ①②③ 分块（gitignore 的本地目录不列）：
 
 ```
+├── .claude-plugin/    # Claude Code 插件市场清单（marketplace.json）
+├── claude-code-plugin/ # Claude Code 插件：hooks.json + 零依赖转发脚本 scripts/pet-hook.mjs
 ├── prompts/           # ① 动画生成提示词配方（绿幕规范 + 按秒分解）
 ├── video/             # ② 素材源视频（绿幕 mp4；不入库，Releases 提供压缩包）
 ├── scripts/           # ② 素材生成链（Python/ffmpeg：水印 → 抠像 → 归一化 → 转码 → GIF 预览）
@@ -578,6 +559,7 @@ npm publish --tag latest   # prepack 自动执行构建（完整产物 + 收敛 
 ├── .github/workflows/ # CI：Safari/HEVC 转码流水线（macOS runner，手动触发 → 发布 assets-mov Release）
 ├── dsh-pet/           # ③ 插件（可独立 npm 发布）
 │   ├── src/           #   TS 源码：host（配置/路由/工作状态）、client（动画链）、shared（双端共用纯逻辑）
+│   │                  #   standalone（desk-pet 进程：Claude Code hook 翻译、claude -p 后端、单实例）
 │   ├── lib/           #   构建产物（npm run build 生成，不入库）
 │   ├── runtime/       #   桌面模式运行壳（Electron 透明窗）
 │   ├── assets/        #   webm 动画 / preview GIF / 字体 / 图标 / config.jsonc 默认配置
