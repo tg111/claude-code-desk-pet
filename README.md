@@ -14,17 +14,53 @@
   <img src="desk-pet/assets/preview/gongzuozhuangtai-chuitou-tanqi-maohan.gif" width="160" alt="出错" title="出错（StopFailure）">
 </p>
 
+<details>
+<summary><b>English</b></summary>
+
+**desk-pet** is a desktop pet for [Claude Code](https://claude.com/claude-code): a transparent, always-on-top animated pet that reacts to what Claude Code is doing. It thinks when you submit a prompt, gets busy while Claude runs tools, paces around while waiting for your permission, celebrates when a turn finishes, and sighs when something fails. Its speech bubble shows the step Claude is working on from its TodoWrite list. When things are quiet it idles through more than a hundred hand-drawn animations, wanders around the screen, and can be dragged and thrown. It also mutters to itself and chats with you, using Claude Code itself (`claude -p`) with your existing login, so no API key is needed.
+
+How it works: a Claude Code plugin registers hooks that forward each event to the local `desk-pet` process, which maps it to an animation. The plugin also starts the pet automatically when a session begins.
+
+**Quick start** (Node.js ≥ 22.12, a graphical desktop on Windows, macOS or Linux):
+
+```sh
+npm i -g desk-pet        # or build from source, see below
+desk-pet --check         # health check: config, Electron, display
+```
+
+Then, inside Claude Code:
+
+```
+/plugin marketplace add tg111/claude-code-desk-pet
+/plugin install desk-pet@desk-pet
+```
+
+Start a new Claude Code session and the pet appears in the top-right corner of your screen. On first launch it downloads Electron (about 100MB, stored in `~/.desk-pet/electron`). It also exposes a local HTTP API so other tools can make it talk, animate or move; see [`API.md`](API.md).
+
+Based on [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) (originally a desktop pet for DeepSeek Harness). The artwork and most of the code come from the original author. MIT licensed.
+
+</details>
+
 ---
 
 ## 快速开始
 
-需要：Node.js ≥ 22.12、[pnpm](https://pnpm.io)、Claude Code，以及一个图形桌面（Windows / macOS / Linux）。
+需要：Node.js ≥ 22.12、Claude Code，以及一个图形桌面（Windows / macOS / Linux）；从源码构建还需要 [pnpm](https://pnpm.io)。
 
-### ① 构建并安装桌宠程序（`desk-pet` 命令）
+### ① 安装桌宠程序（`desk-pet` 命令）
+
+从 npm 安装：
 
 ```sh
-git clone https://github.com/tg111/dsh-pet.git
-cd dsh-pet/desk-pet
+npm i -g desk-pet
+desk-pet --check     # 体检：配置、Electron、图形环境
+```
+
+或者从源码构建：
+
+```sh
+git clone https://github.com/tg111/claude-code-desk-pet.git
+cd claude-code-desk-pet/desk-pet
 pnpm install
 npm run build        # 产出 lib/（构建产物不入库，clone 后必须跑一次）
 npm link             # 把 desk-pet 命令装到 PATH 上（Windows 下同样可用）
@@ -38,10 +74,10 @@ desk-pet --check     # 体检：配置、Electron、图形环境
 在 Claude Code 里执行：
 
 ```
-/plugin install desk-pet --marketplace tg111/dsh-pet
+/plugin install desk-pet --marketplace tg111/claude-code-desk-pet
 ```
 
-（旧版 Claude Code 分两步：`/plugin marketplace add tg111/dsh-pet`，再 `/plugin install desk-pet@desk-pet`。）
+（旧版 Claude Code 分两步：`/plugin marketplace add tg111/claude-code-desk-pet`，再 `/plugin install desk-pet@desk-pet`。）
 
 装好后**新开一个 Claude Code 会话**：会话开始时插件会在后台把桌宠拉起来（右上角出现宠物），之后每个 hook 事件都会转发给它。多个会话共用同一只桌宠。
 
@@ -52,15 +88,15 @@ desk-pet --check     # 体检：配置、Electron、图形环境
 ```jsonc
 {
   "hooks": {
-    "SessionStart":       [{ "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
-    "UserPromptSubmit":   [{ "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
-    "PreToolUse":         [{ "matcher": "*", "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
-    "PostToolUse":        [{ "matcher": "*", "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
-    "PostToolUseFailure": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
-    "Notification":       [{ "matcher": "*", "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
-    "Stop":               [{ "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
-    "StopFailure":        [{ "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
-    "SessionEnd":         [{ "hooks": [{ "type": "command", "command": "node /path/to/dsh-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }]
+    "SessionStart":       [{ "hooks": [{ "type": "command", "command": "node /path/to/claude-code-desk-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
+    "UserPromptSubmit":   [{ "hooks": [{ "type": "command", "command": "node /path/to/claude-code-desk-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
+    "PreToolUse":         [{ "matcher": "*", "hooks": [{ "type": "command", "command": "node /path/to/claude-code-desk-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
+    "PostToolUse":        [{ "matcher": "*", "hooks": [{ "type": "command", "command": "node /path/to/claude-code-desk-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
+    "PostToolUseFailure": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "node /path/to/claude-code-desk-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
+    "Notification":       [{ "matcher": "*", "hooks": [{ "type": "command", "command": "node /path/to/claude-code-desk-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
+    "Stop":               [{ "hooks": [{ "type": "command", "command": "node /path/to/claude-code-desk-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
+    "StopFailure":        [{ "hooks": [{ "type": "command", "command": "node /path/to/claude-code-desk-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }],
+    "SessionEnd":         [{ "hooks": [{ "type": "command", "command": "node /path/to/claude-code-desk-pet/claude-code-plugin/scripts/pet-hook.mjs" }] }]
   }
 }
 ```
@@ -109,7 +145,7 @@ Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code
 
 1. 看日志：`~/.desk-pet/desk-pet.log`（由 hook 自动启动时的输出）
 2. 在终端里前台跑一次：`desk-pet`，看横幅里的「桌面小窗」是否为 1 只、有没有报错；`desk-pet --check` 体检
-3. 提示找不到 `desk-pet` 命令：回到「快速开始 ①」执行 `npm link`，或设 `DESK_PET_CMD="node /path/to/dsh-pet/desk-pet/lib/standalone.js"`
+3. 提示找不到 `desk-pet` 命令：回到「快速开始 ①」执行 `npm i -g desk-pet`（源码方式则是 `npm link`），或设 `DESK_PET_CMD="node /path/to/claude-code-desk-pet/desk-pet/lib/standalone.js"`
 4. 排查 hook 有没有到：`DESK_PET_DEBUG=1 desk-pet` 前台运行，每条 hook 都会打一行 `hook PreToolUse → tool/call`
 5. Linux 无图形环境（SSH / 容器）会自动跳过桌面窗口；远程桌面 / Xvfb 可设 `DESK_PET_DESKTOP_FORCE=1`
 

@@ -12,15 +12,24 @@
   <img src="assets/preview/gongzuozhuangtai-chuitou-tanqi-maohan.gif" width="160" alt="出错" title="出错">
 </p>
 
-> 本目录是桌宠本体（`desk-pet` 程序 + 动画素材）。完整说明（hook 对应关系、配置、pet pack、素材生成链）见[仓库根目录 README](../README.md)。
+**English:** a desktop pet for [Claude Code](https://claude.com/claude-code). It is a transparent animated pet that follows Claude Code's work status: thinking, working, waiting for approval, done, or error. Install it with `npm i -g desk-pet`, then run `/plugin marketplace add tg111/claude-code-desk-pet` and `/plugin install desk-pet@desk-pet` in Claude Code, and start a new session. See the [project README](https://github.com/tg111/claude-code-desk-pet#readme) for details.
+
+> 本目录是桌宠本体（`desk-pet` 程序 + 动画素材）。完整说明（hook 对应关系、配置、pet pack、素材生成链）见[仓库根目录 README](https://github.com/tg111/claude-code-desk-pet#readme)。
 
 ---
 
 ## 🚀 安装
 
-需要 Node.js ≥ 22.12、pnpm、Claude Code，以及图形桌面（Windows / macOS / Linux）。
+需要 Node.js ≥ 22.12、Claude Code，以及图形桌面（Windows / macOS / Linux）。
 
-**① 构建并安装 `desk-pet` 命令**（本目录下）：
+**① 安装 `desk-pet` 命令**：
+
+```sh
+npm i -g desk-pet
+desk-pet --check     # 体检：配置、Electron、图形环境
+```
+
+或者在本目录下从源码构建（需要 pnpm）：
 
 ```sh
 pnpm install
@@ -32,10 +41,10 @@ desk-pet --check     # 体检：配置、Electron、图形环境
 **② 在 Claude Code 里装插件**（hook 转发 + 会话开始时自动拉起桌宠）：
 
 ```
-/plugin install desk-pet --marketplace tg111/dsh-pet
+/plugin install desk-pet --marketplace tg111/claude-code-desk-pet
 ```
 
-旧版 Claude Code：`/plugin marketplace add tg111/dsh-pet`，再 `/plugin install desk-pet@desk-pet`。不想装插件也可以手动把 hooks 写进 `~/.claude/settings.json`，见根 README「快速开始 ③」。
+旧版 Claude Code：`/plugin marketplace add tg111/claude-code-desk-pet`，再 `/plugin install desk-pet@desk-pet`。不想装插件也可以手动把 hooks 写进 `~/.claude/settings.json`，见根 README「快速开始 ③」。
 
 装好后新开一个 Claude Code 会话，宠物就会出现在屏幕右上角；多个会话共用同一只。第一次启动会下载 Electron（约 100MB，落在 `~/.desk-pet/electron`，同一版本只下一次；网络受限时设 `DESK_PET_ELECTRON_MIRROR` 换镜像）。
 
@@ -61,7 +70,7 @@ npm run standalone       # 仓库里直接跑构建产物
 - **右键菜单**：打开 Claude Code、碎碎念、对话、回到初始位置、隐藏（托盘可恢复）、重载配置，以及「动作 → 分类 → 具体动画」任意点播
 - **托盘**：开关每只宠物的显示、退出桌宠
 - **多开与 pet pack**：多只宠物同屏，各自大小位置；还能添加独立动画池与素材的全新种类
-- **对外 HTTP 接口**：别的脚本（或 Claude 自己）可以让它说话、播动画、挪位置，见 [`../API.md`](../API.md)
+- **对外 HTTP 接口**：别的脚本（或 Claude 自己）可以让它说话、播动画、挪位置，见 [`API.md`](https://github.com/tg111/claude-code-desk-pet/blob/main/API.md)
 
 ## 🔧 环境变量
 

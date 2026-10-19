@@ -1,21 +1,27 @@
 {
   "name": "desk-pet",
   "version": "0.4.0",
-  "description": "Claude Code 的桌面宠物：吃白饭的蓝色大肥鱼住进了你的桌面。平时爱玩魔方、爱吃各种零食、偶尔打个盹，被你拖来甩去也照旧赖着；Claude Code 忙起来它跟着忙前忙后（思考 / 干活 / 等你确认 / 完成 / 出错），闲下来爱碎碎念，还乐意陪你唠两句。",
+  "description": "A desktop pet for Claude Code: a transparent animated pet that follows Claude Code’s work status (thinking / working / waiting for approval / done / error). Claude Code 的桌面宠物：吃白饭的蓝色大肥鱼住进了你的桌面。平时爱玩魔方、爱吃各种零食、偶尔打个盹，被你拖来甩去也照旧赖着；Claude Code 忙起来它跟着忙前忙后（思考 / 干活 / 等你确认 / 完成 / 出错），闲下来爱碎碎念，还乐意陪你唠两句。",
   "keywords": [
     "claude-code",
     "claude-code-hooks",
+    "claude-code-plugin",
+    "claude",
+    "anthropic",
     "desktop-pet",
+    "desk-pet",
     "pet",
-    "electron"
+    "electron",
+    "桌宠"
   ],
-  "homepage": "https://github.com/tg111/dsh-pet#readme",
+  "homepage": "https://github.com/tg111/claude-code-desk-pet#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tg111/dsh-pet.git"
+    "url": "git+https://github.com/tg111/claude-code-desk-pet.git",
+    "directory": "desk-pet"
   },
   "bugs": {
-    "url": "https://github.com/tg111/dsh-pet/issues"
+    "url": "https://github.com/tg111/claude-code-desk-pet/issues"
   },
   "_comment": [
     "=============== desk-pet 包清单说明 ===============",
