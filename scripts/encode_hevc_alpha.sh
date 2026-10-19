@@ -27,16 +27,16 @@ set -euo pipefail
 if [[ -n "$1" ]]; then
   asset_dir=$1
 else
-  if [[ -d "main-repo/dsh-pet/assets/webm" ]]; then
-    asset_dir="main-repo/dsh-pet/assets/webm"
-  elif [[ -d "main-repo/dsh-pet/assets/thumb" ]]; then
-    asset_dir="main-repo/dsh-pet/assets/thumb"
-  elif [[ -d "dsh-pet/assets/webm" ]]; then
-    asset_dir="dsh-pet/assets/webm"
-  elif [[ -d "dsh-pet/assets/thumb" ]]; then
-    asset_dir="dsh-pet/assets/thumb"
+  if [[ -d "main-repo/desk-pet/assets/webm" ]]; then
+    asset_dir="main-repo/desk-pet/assets/webm"
+  elif [[ -d "main-repo/desk-pet/assets/thumb" ]]; then
+    asset_dir="main-repo/desk-pet/assets/thumb"
+  elif [[ -d "desk-pet/assets/webm" ]]; then
+    asset_dir="desk-pet/assets/webm"
+  elif [[ -d "desk-pet/assets/thumb" ]]; then
+    asset_dir="desk-pet/assets/thumb"
   else
-    print -u2 "no asset dir found; pass it as \$1 (e.g. main-repo/dsh-pet/assets/webm)"
+    print -u2 "no asset dir found; pass it as \$1 (e.g. main-repo/desk-pet/assets/webm)"
     exit 1
   fi
 fi
@@ -44,7 +44,7 @@ out_dir=${2:-dist}
 
 script_dir=${0:A:h}
 encoder_src="$script_dir/hevc_alpha_encoder.swift"
-encoder_bin=$(mktemp /tmp/dsh-pet-hevc-alpha.XXXXXX)
+encoder_bin=$(mktemp /tmp/desk-pet-hevc-alpha.XXXXXX)
 temp_output=''
 
 cleanup() {

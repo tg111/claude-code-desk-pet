@@ -9,7 +9,7 @@ normalize_step03.py → encode_thumbs.py，整条素材链其余环节不变。
   1. 把 PR 导出的透明 mov 放进 pr/，文件名与动作名一致（如 吃汤圆.mov）。
   2. 运行 `python pr_import_step02.py` → 生成 step02/吃汤圆.webm。
   3. 接着跑 normalize_step03.py、encode_thumbs.py（增量：本动作重做，其余 SKIP）。
-  4. 把 step04 结果同步到 dsh-pet/assets/thumb/。
+  4. 把 step04 结果同步到 desk-pet/assets/thumb/。
 
 注意：
   - mov 必须携带 alpha 通道（如 ProRes 4444 with alpha，或 PNG 序列封装），

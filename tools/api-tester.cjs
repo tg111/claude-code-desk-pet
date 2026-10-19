@@ -1,13 +1,12 @@
 /**
- * dsh-pet HTTP 接口测试页的本地代理。
+ * desk-pet HTTP 接口测试页的本地代理。
  *
- * 为什么需要它：宿主路由（src/host/index.ts）**不返回 CORS 头**——浏览器半侧之所以能用，
- * 是因为它由 DSH 自己的 Web 服务同源提供。测试页要么是 file://（Origin: null），
- * 要么是本地另一个端口，跨域请求会被浏览器直接拦掉（不是 404，是压根发不出去）。
- * 所以这里起一个同源小服务：转发到宿主，并补上 CORS 头。
+ * 为什么需要它：宿主路由（src/host/index.ts）**不返回 CORS 头**（桌面渲染端走 bridge 管道，用不着）。
+ * 测试页要么是 file://（Origin: null），要么是本地另一个端口，跨域请求会被浏览器直接拦掉
+ * （不是 404，是压根发不出去）。所以这里起一个同源小服务：转发到宿主，并补上 CORS 头。
  *
  * 用法：
- *   node tools/api-tester.cjs                # 默认探测 3080，自动开浏览器
+ *   node tools/api-tester.cjs                # 默认读 ~/.desk-pet/server.json 的端口（没有则 3080），自动开浏览器
  *   node tools/api-tester.cjs --port 3080    # 指定宿主端口
  *   node tools/api-tester.cjs --no-open      # 不自动开浏览器
  *
@@ -17,9 +16,9 @@
  * 另外它还扮演**第三方素材托管方**，让测试页能把"自己托管的 url"这条路走通：
  *   POST /__upload?name=<原文件名>   请求体 = 文件原始字节 → { ok, url, bytes }
  *   GET  /__uploads/<文件名>         把刚上传的文件原样送回去（带 CORS）
- * 上传落在系统临时目录（`<tmp>/dsh-pet-tester-uploads`），**不污染仓库**。
+ * 上传落在系统临时目录（`<tmp>/desk-pet-tester-uploads`），**不污染仓库**。
  *
- * 注意 /__uploads 的响应**必须带 CORS**：测试页在 8741、DSH 页面在另一个端口，浏览器端素材
+ * 注意 /__uploads 的响应**必须带 CORS**：测试页在 8741、桌宠服务在另一个端口，素材
  * 走的是 `fetch`，跨源就会被拦。这正是"外站 url 要对方自己配 CORS"那条规则的真实演示——
  * 换成桌面端（`el.src` 直连、媒体加载不走 CORS）则不需要。
  */
@@ -42,11 +41,22 @@ const ROOT_DIR = path.resolve(argOf('--dir', __dirname));
 const PAGE = argOf('--page', 'api-tester.html');
 const NO_OPEN = argv.includes('--no-open');
 
-/** 转发目标端口：测试页上的输入框可以改它（经 /__target），所以是可变状态 */
-let hostPort = Number(argOf('--port', '3080'));
+/** desk-pet 登记的实际端口（~/.desk-pet/server.json；DESK_PET_HOME 可改数据目录） */
+function registeredPort() {
+  const home = process.env.DESK_PET_HOME || path.join(os.homedir(), '.desk-pet');
+  try {
+    const port = Number(JSON.parse(fs.readFileSync(path.join(home, 'server.json'), 'utf8')).port);
+    return Number.isInteger(port) && port > 0 ? String(port) : '3080';
+  } catch {
+    return '3080';
+  }
+}
 
-/** 路由前缀：与 src/host/index.ts 的 ROUTE_PREFIX 一致（7340 是名字，不是端口） */
-const PREFIX = '/dsh-pet-7340';
+/** 转发目标端口：测试页上的输入框可以改它（经 /__target），所以是可变状态 */
+let hostPort = Number(argOf('--port', registeredPort()));
+
+/** 路由前缀：与 src/host/index.ts 的 ROUTE_PREFIX 一致 */
+const PREFIX = '/desk-pet';
 
 /** 这一跳要补的 CORS 头。注意：**只给本机测试代理补**，不改宿主行为。 */
 const CORS = {
@@ -60,7 +70,7 @@ const CORS = {
 const isApi = (url) => url === PREFIX || url.startsWith(PREFIX + '/') || url.startsWith(PREFIX + '?');
 
 /** 上传落盘目录：系统临时目录，**不污染仓库**（测试页在这里扮演"第三方托管素材"） */
-const UPLOAD_DIR = path.join(os.tmpdir(), 'dsh-pet-tester-uploads');
+const UPLOAD_DIR = path.join(os.tmpdir(), 'desk-pet-tester-uploads');
 /** 单个上传上限：防手滑传个几 GB 把临时盘塞满 */
 const UPLOAD_MAX = 512 * 1024 * 1024;
 /** 上传/回读用的 MIME（`<video>` / `<img>` 靠它解码；认不出的按二进制流送） */
@@ -101,7 +111,7 @@ function forward(req, res) {
   upstream.on('error', (err) => {
     const msg =
       err.code === 'ECONNREFUSED'
-        ? `连不上宿主 http://127.0.0.1:${hostPort}——DSH 没在跑，或端口不对（页面上改端口，或启动时 --port 指定）`
+        ? `连不上宿主 http://127.0.0.1:${hostPort}——desk-pet 没在跑，或端口不对（页面上改端口，或启动时 --port 指定）`
         : `转发失败：${err.message}`;
     res.writeHead(502, { 'content-type': 'application/json; charset=utf-8', ...CORS });
     res.end(JSON.stringify({ proxyError: msg, target }, null, 2));
@@ -111,7 +121,7 @@ function forward(req, res) {
 }
 
 /**
- * 代理自己的小端点（**不是** dsh-pet 接口，所以放在前缀之外）：
+ * 代理自己的小端点（**不是** desk-pet 接口，所以放在前缀之外）：
  *   GET  /__target        → { port }        页面启动时问"现在转发到哪个端口"
  *   POST /__target?port=N → { port }        页面改了端口输入框，切换转发目标
  * 这样测试页不用重新启动代理就能换端口试。
@@ -129,7 +139,7 @@ function handleTarget(req, res, url) {
  * 收一个上传：请求体就是文件的**原始字节**（不走 multipart——省掉一个解析器，而
  * `fetch(url, { body: file })` 本来就能直接发 File/Blob）。流式落盘，不把整个文件读进内存。
  *
- * 返回的 url 指向本代理自己的端口 —— 对 DSH 页面来说是**跨源**地址，正是要测的那条路。
+ * 返回的 url 指向本代理自己的端口 —— 对桌宠服务来说是**跨源**地址，正是要测的那条路。
  */
 function handleUpload(req, res, url) {
   const json = (status, obj) => {
@@ -231,7 +241,7 @@ const server = http.createServer((req, res) => {
     return res.end();
   }
   if (url.pathname === '/__target') return handleTarget(req, res, url);
-  // 代理自己扮演"第三方素材托管方"：上传 + 回读（都在前缀之外，不会被当成 dsh-pet 接口转发）
+  // 代理自己扮演"第三方素材托管方"：上传 + 回读（都在前缀之外，不会被当成 desk-pet 接口转发）
   if (url.pathname === '/__upload') return handleUpload(req, res, url);
   if (url.pathname.startsWith('/__uploads/')) {
     return serveUpload(req, res, url.pathname.slice('/__uploads/'.length));
@@ -252,7 +262,7 @@ server.on('error', (err) => {
 server.listen(PROXY_PORT, '127.0.0.1', () => {
   const url = `http://127.0.0.1:${PROXY_PORT}/${PAGE}`;
   console.log('');
-  console.log('  dsh-pet 接口测试页');
+  console.log('  desk-pet 接口测试页');
   console.log('  ─────────────────────────────────────────────');
   console.log(`  测试页   ${url}`);
   console.log(`  转发到   http://127.0.0.1:${hostPort}${PREFIX}`);

@@ -1,0 +1,82 @@
+{
+  "name": "desk-pet",
+  "version": "0.4.0",
+  "description": "Claude Code 的桌面宠物：吃白饭的蓝色大肥鱼住进了你的桌面。平时爱玩魔方、爱吃各种零食、偶尔打个盹，被你拖来甩去也照旧赖着；Claude Code 忙起来它跟着忙前忙后（思考 / 干活 / 等你确认 / 完成 / 出错），闲下来爱碎碎念，还乐意陪你唠两句。",
+  "keywords": [
+    "claude-code",
+    "claude-code-hooks",
+    "desktop-pet",
+    "pet",
+    "electron"
+  ],
+  "homepage": "https://github.com/tg111/dsh-pet#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tg111/dsh-pet.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tg111/dsh-pet/issues"
+  },
+  "_comment": [
+    "=============== desk-pet 包清单说明 ===============",
+    "type: module —— 本包是 ESM",
+    "bin.desk-pet —— 桌宠进程（构建产物 lib/standalone.js，源码 src/standalone/cli.ts）：宿主半边（src/host）跑在伪 ctx 上，接收 Claude Code hook、碎碎念/对话走 claude -p、拉起 Electron 透明小窗",
+    "files —— npm pack 只打这些（见 scripts/prepare.js：它会用同一份清单覆盖本字段）；assets/preview 的 GIF 只给 README 展示，不入包",
+    "scripts.build —— 构建 lib/standalone.js + 桌面共享核心 runtime/electron-helper/shared-core.js（node scripts/prepare.js）。clone 后手动跑一次",
+    "scripts.encode —— 素材链在仓库根目录的 scripts/（Python + ffmpeg），不在本包",
+    "engines —— Node.js 兼容下限（由运行依赖 @electron/get 的 engines 决定）",
+    "================================================"
+  ],
+  "type": "module",
+  "bin": {
+    "desk-pet": "lib/standalone.js"
+  },
+  "files": [
+    "lib",
+    "src",
+    "assets/webm",
+    "runtime/electron-helper",
+    "assets/fonts",
+    "assets/pic",
+    "assets/memes",
+    "assets/config.jsonc",
+    "assets/logo.png",
+    "scripts/ensure-electron.mjs"
+  ],
+  "scripts": {
+    "bundle": "tsdown",
+    "build:desktop-core": "node scripts/build-desktop-core.mjs",
+    "ensure:electron": "node scripts/ensure-electron.mjs",
+    "start:desktop": "node scripts/start-desktop.mjs",
+    "standalone": "node lib/standalone.js",
+    "build": "node scripts/prepare.js",
+    "prepack": "npm run build && npm run typecheck && npm run lint && npm run format:check && node scripts/prepack-check.js && npm run check:openapi",
+    "check:openapi": "node scripts/check-openapi.mjs",
+    "test": "node --experimental-strip-types --import ./scripts/test-register.mjs --test src/**/*.test.ts",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test:ui": "node --test scripts/tests/*.test.mjs"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "@electron-internal/extract-zip": "^1.0.5",
+    "@electron/get": "^5.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.2.0",
+    "eslint": "^10.9.0",
+    "js-yaml": "^5.4.2",
+    "playwright": "1.63.0",
+    "prettier": "^3.9.6",
+    "rolldown": "1.0.0-beta.7",
+    "tsdown": "^0.8.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.67.0"
+  }
+}
