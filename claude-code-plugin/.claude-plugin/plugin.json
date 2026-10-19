@@ -5,13 +5,16 @@
   "author": {
     "name": "tg111"
   },
-  "homepage": "https://github.com/tg111/dsh-pet",
-  "repository": "https://github.com/tg111/dsh-pet",
+  "homepage": "https://github.com/tg111/claude-code-desk-pet",
+  "repository": "https://github.com/tg111/claude-code-desk-pet",
   "license": "MIT",
   "keywords": [
+    "claude-code",
     "desktop-pet",
+    "desk-pet",
     "pet",
     "hooks",
-    "companion"
+    "companion",
+    "electron"
   ]
 }

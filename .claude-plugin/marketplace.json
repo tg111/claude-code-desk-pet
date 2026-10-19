@@ -4,7 +4,7 @@
     "name": "tg111"
   },
   "metadata": {
-    "description": "Claude Code 桌宠（fork 自 desk-pet）"
+    "description": "Claude Code 桌宠 / A desktop pet for Claude Code（基于 PC2005-cloud/dsh-pet 二创）"
   },
   "plugins": [
     {

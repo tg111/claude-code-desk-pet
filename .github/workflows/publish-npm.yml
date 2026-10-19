@@ -1,0 +1,68 @@
+# ============================================================================
+# 发布 desk-pet 到 npm
+#
+# 触发：推送形如 v0.4.0 的 tag（tag 必须与 desk-pet/package.json 的 version 一致），
+#       或在 Actions 页面手动运行（workflow_dispatch，发布当前 version）。
+#
+# 前置：仓库 Settings → Secrets and variables → Actions 里添加 NPM_TOKEN
+#       （npmjs.com 生成的 Granular Access Token，对 desk-pet 包有读写权限；
+#       第一次发布时包还不存在，token 的权限范围选 "All packages"）。
+#
+# 发布流程：pnpm install → 测试 → npm publish（prepack 会自动跑构建、类型检查、
+#       lint、格式检查、prepack-check、OpenAPI 校验，任何一步失败都不会发布）。
+#       --provenance 会在 npm 页面上附带「由本仓库的这次 Actions 构建」的来源证明。
+# ============================================================================
+
+name: publish-npm
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # npm provenance 需要
+
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desk-pet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+          cache-dependency-path: desk-pet/pnpm-lock.yaml
+
+      - name: 检查 tag 与 package.json 的 version 一致
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME 与 package.json 的 version $version 不一致"
+            exit 1
+          fi
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: npm test
+
+      - name: 发布
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
