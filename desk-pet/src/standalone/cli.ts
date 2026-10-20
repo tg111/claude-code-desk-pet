@@ -41,8 +41,11 @@ import {
 import { claudePetHome, configPathsFor, describePets, isDesktopVisible, parseArgs, USAGE } from './options';
 import { listenStandaloneServer } from './server';
 
-/** 启动：先起服务拿到端口，再 `apply`（宿主据此拼桌面 Helper 的 configUrl） */
-async function run(logger: StandaloneLogger, options: { port: number }): Promise<void> {
+/**
+ * 启动：先起服务拿到端口，再 `apply`（宿主据此拼桌面 Helper 的 configUrl）。
+ * @returns 服务起来了返回 null（进程靠它活着）；没起服务就结束时返回退出码
+ */
+async function run(logger: StandaloneLogger, options: { port: number }): Promise<number | null> {
   const home = deskPetHomeDir();
   const paths = configPathsFor(packageRoot, home);
 
@@ -52,15 +55,14 @@ async function run(logger: StandaloneLogger, options: { port: number }): Promise
       `包内默认配置缺失：${paths.defaultFile}。若你是在直接跑源码（包根被解析成了 src/），` +
         '请改用构建产物：npm run bundle 后 node lib/standalone.js（或 npm run standalone）。',
     );
-    process.exitCode = 1;
-    return;
+    return 1;
   }
 
   // 单实例：多个 Claude Code 会话各自的 SessionStart 都会来拉一次，只留第一个
   const lock = acquireInstanceLock(home);
   if ('runningPid' in lock) {
     logger.info(`桌宠已在运行（pid ${lock.runningPid}），本次不再启动。`);
-    return;
+    return 0;
   }
 
   // 旧版把配置 / 记忆放在 <数据目录>/dsh-pet/ 下：挪到 <数据目录>/（只在持锁后做，避免两个实例同时挪）
@@ -169,10 +171,11 @@ async function run(logger: StandaloneLogger, options: { port: number }): Promise
   if (context.failures.length > 0) {
     logger.warn(`初始化期间有 ${context.failures.length} 项失败（见上方日志）；路由仍可用，相关端点会显式报错`);
   }
+  return null;
 }
 
-/** CLI 入口 */
-async function main(): Promise<number> {
+/** CLI 入口：返回退出码；服务在跑时返回 null */
+async function main(): Promise<number | null> {
   const parsed = parseArgs(process.argv.slice(2));
   if ('error' in parsed) {
     console.error(`desk-pet: ${parsed.error}\n`);
@@ -188,8 +191,15 @@ async function main(): Promise<number> {
   process.env.DESK_PET_HOME = claudePetHome(process.env, homedir());
   const logger = createStandaloneLogger();
   if (options.check) return runCheck(logger);
-  await run(logger, options);
-  return 0;
+  return run(logger, options);
+}
+
+/**
+ * 写完 stdout 再退出（管道上的 stdout 是异步写的，直接 process.exit 可能截掉最后几行）。
+ * 不能只靠「事件循环空了自然退出」：安装版里本文件跑在 Electron 主进程，它不会自己退出。
+ */
+function exitAfterFlush(code: number): void {
+  process.stdout.write('', () => process.exit(code));
 }
 
 // 本文件就是可执行入口（package.json 的 bin 指向构建产物 lib/standalone.js），
@@ -197,7 +207,7 @@ async function main(): Promise<number> {
 // import.meta.main 要 Node 24+，而 argv[1] 比较在 pnpm 的 bin 符号链接下会判错。
 main()
   .then((code) => {
-    if (code !== 0) process.exit(code);
+    if (code !== null) exitAfterFlush(code);
   })
   .catch((error: unknown) => {
     console.error(`desk-pet: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);

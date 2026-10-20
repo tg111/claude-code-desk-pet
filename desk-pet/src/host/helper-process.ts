@@ -257,13 +257,22 @@ export async function ensureElectronDownload(options: EnsureElectronOptions = {}
   }
 }
 
+/**
+ * 拉起 Helper 时额外加给 Electron 的命令行开关：DESK_PET_ELECTRON_ARGS（空白分隔），例如 `--no-sandbox`。
+ * 以 root 运行、或沙箱不可用（AppImage / 限制了 user namespace 的发行版）时 Electron 不加 `--no-sandbox`
+ * 会在跑任何 JS 之前直接退出，只能从命令行传进去。
+ */
+export function electronExtraArgs(env: Record<string, string | undefined> = process.env): string[] {
+  return (env.DESK_PET_ELECTRON_ARGS || '').split(/\s+/).filter(Boolean);
+}
+
 export function defaultLaunch(options: HelperOptions = {}): { command: string; args: string[] } {
   const electronPath = resolveElectronPath([options.electronPath]);
   if (!electronPath) {
     throw new Error('desk-pet: cannot resolve Electron executable. Set DESK_PET_ELECTRON_PATH or install electron.');
   }
   const helperPath = options.helperPath || defaultHelperMain;
-  return { command: electronPath, args: [helperPath] };
+  return { command: electronPath, args: [...electronExtraArgs(), helperPath] };
 }
 
 /** 停止 helper 的等待上限（ms）：超过就升级 SIGKILL（issue #64） */

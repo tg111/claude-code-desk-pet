@@ -22,6 +22,7 @@ import {
   HelperProcess,
   deskPetHomeDir,
   defaultElectronExe,
+  electronExtraArgs,
   ensureElectronDownload,
   hasGraphicalDisplay,
   helperRunIsStable,
@@ -164,6 +165,19 @@ describe('resolveElectronPath —— 候选优先级', () => {
       writeFileSync(landed, '');
       assert.equal(resolveElectronPath([]), landed);
     });
+  });
+});
+
+describe('electronExtraArgs —— DESK_PET_ELECTRON_ARGS 额外开关', () => {
+  test('未设置时没有额外开关', () => {
+    assert.deepEqual(electronExtraArgs({}), []);
+  });
+
+  test('按空白分隔，忽略首尾与连续空白', () => {
+    assert.deepEqual(electronExtraArgs({ DESK_PET_ELECTRON_ARGS: '  --no-sandbox   --foo=1 ' }), [
+      '--no-sandbox',
+      '--foo=1',
+    ]);
   });
 });
 

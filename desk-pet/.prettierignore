@@ -5,3 +5,5 @@ runtime/electron-helper/shared-core.js
 package-lock.json
 pnpm-lock.yaml
 pnpm-workspace.yaml
+packaging/stage
+packaging/dist
