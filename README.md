@@ -23,12 +23,7 @@ How it works: a Claude Code plugin registers hooks that forward each event to th
 
 **Quick start** (Node.js ≥ 22.12, a graphical desktop on Windows, macOS or Linux):
 
-Download the installer for your OS from [Releases](https://github.com/tg111/claude-code-desk-pet/releases/latest) (`.exe` / `.dmg` / `.AppImage`; it bundles Electron) and open it once, or install with npm:
-
-```sh
-npm i -g desk-pet        # or build from source, see below
-desk-pet --check         # health check: config, Electron, display
-```
+Download the installer for your OS from [Releases](https://github.com/tg111/claude-code-desk-pet/releases/latest) (`.exe` / `.dmg` / `.AppImage`; it bundles Electron) and open it once, or build from source (see below).
 
 The installers are not code-signed: on Windows click "More info → Run anyway"; on macOS allow it under System Settings → Privacy & Security.
 
@@ -39,7 +34,7 @@ Then, inside Claude Code:
 /plugin install desk-pet@desk-pet
 ```
 
-Start a new Claude Code session and the pet appears in the top-right corner of your screen. With the npm version, the first launch downloads Electron (about 100MB, stored in `~/.desk-pet/electron`). It also exposes a local HTTP API so other tools can make it talk, animate or move; see [`API.md`](API.md).
+Start a new Claude Code session and the pet appears in the top-right corner of your screen. When built from source, the first launch downloads Electron (about 100MB, stored in `~/.desk-pet/electron`). It also exposes a local HTTP API so other tools can make it talk, animate or move; see [`API.md`](API.md).
 
 Based on [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) (originally a desktop pet for DeepSeek Harness). The artwork and most of the code come from the original author. MIT licensed.
 
@@ -53,7 +48,7 @@ Based on [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) (origin
 
 ### ① 安装桌宠程序
 
-三种方式任选一种。
+两种方式任选一种。
 
 **下载安装版**（自带 Electron，不用再下载）：到 [Releases](https://github.com/tg111/claude-code-desk-pet/releases/latest) 下载对应系统的安装包，装好后打开一次，之后 Claude Code 插件就能自动拉起它。
 
@@ -66,13 +61,6 @@ Based on [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) (origin
 
 安装版运行时宠物只出现在托盘 / 菜单栏，不占任务栏和 Dock。
 
-**从 npm 安装：**
-
-```sh
-npm i -g desk-pet
-desk-pet --check     # 体检：配置、Electron、图形环境
-```
-
 **从源码构建：**
 
 ```sh
@@ -84,7 +72,7 @@ npm link             # 把 desk-pet 命令装到 PATH 上（Windows 下同样可
 desk-pet --check     # 体检：配置、Electron、图形环境
 ```
 
-> npm / 源码方式第一次启动会自动下载 Electron（约 100MB，落在 `~/.desk-pet/electron`，同一版本只下一次；默认走 npmmirror 镜像，网络受限时可设 `DESK_PET_ELECTRON_MIRROR` 换镜像）。
+> 源码方式第一次启动会自动下载 Electron（约 100MB，落在 `~/.desk-pet/electron`，同一版本只下一次；默认走 npmmirror 镜像，网络受限时可设 `DESK_PET_ELECTRON_MIRROR` 换镜像）。
 
 ### ② 在 Claude Code 里装插件（hook 转发 + 自动启动）
 
@@ -163,7 +151,7 @@ Claude Code ──hook(stdin JSON)──▶ pet-hook.mjs ──POST /claude-code
 
 1. 看日志：`~/.desk-pet/desk-pet.log`（由 hook 自动启动时的输出）
 2. 在终端里前台跑一次：`desk-pet`，看横幅里的「桌面小窗」是否为 1 只、有没有报错；`desk-pet --check` 体检
-3. 提示找不到 `desk-pet` 命令：用安装版的话先手动打开它一次（它会把自己的位置登记到 `~/.desk-pet/launch.json`）；npm 方式执行 `npm i -g desk-pet`（源码方式则是 `npm link`），或设 `DESK_PET_CMD="node /path/to/claude-code-desk-pet/desk-pet/lib/standalone.js"`
+3. 提示找不到 `desk-pet` 命令：用安装版的话先手动打开它一次（它会把自己的位置登记到 `~/.desk-pet/launch.json`）；源码方式回到「快速开始 ①」执行 `npm link`，或设 `DESK_PET_CMD="node /path/to/claude-code-desk-pet/desk-pet/lib/standalone.js"`
 4. 排查 hook 有没有到：`DESK_PET_DEBUG=1 desk-pet` 前台运行，每条 hook 都会打一行 `hook PreToolUse → tool/call`
 5. Linux 无图形环境（SSH / 容器）会自动跳过桌面窗口；远程桌面 / Xvfb 可设 `DESK_PET_DESKTOP_FORCE=1`
 
