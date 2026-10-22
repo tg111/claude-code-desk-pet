@@ -37,6 +37,9 @@ temp/
 #   runtime/electron-helper/shared-core.js  桌面共享纯逻辑（scripts/build-desktop-core.mjs 产出，window.PetShared）
 desk-pet/lib/
 desk-pet/runtime/electron-helper/shared-core.js
+#   packaging/stage、packaging/dist  安装版打包的中间目录与产物（node packaging/build.mjs）
+desk-pet/packaging/stage/
+desk-pet/packaging/dist/
 
 # ── IDE / 编辑器 ──
 .idea/

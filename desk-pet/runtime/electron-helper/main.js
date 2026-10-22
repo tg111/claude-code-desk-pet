@@ -201,7 +201,9 @@ function probePrimaryScale() {
   };
   let out = '';
   try {
-    out = execFileSync(process.execPath, [__filename, '--desk-pet-dpi-probe'], opts);
+    // 本进程是带着 --no-sandbox 起来的（root / 沙箱不可用），探测子进程不带就起不来
+    const sandboxArgs = app.commandLine.hasSwitch('no-sandbox') ? ['--no-sandbox'] : [];
+    out = execFileSync(process.execPath, [...sandboxArgs, __filename, '--desk-pet-dpi-probe'], opts);
   } catch (e) {
     // 只认 stdout，不认退出码：一个不开窗口的 Electron 进程调 app.exit() 在 Windows 上
     // 偶发 0xC0000005（退出期访问违例），但那时值早就写出来了，丢掉它纯属浪费一次冷启动。
@@ -518,7 +520,8 @@ function createPetWindows() {
       offBodyMs.delete(win.id);
     });
     win
-      .loadFile('index.html', {
+      // 绝对路径：相对路径按 app 根目录解析，安装版的 app 根是包根（入口 packaging/main.cjs），不是本目录
+      .loadFile(path.join(__dirname, 'index.html'), {
         query: {
           configUrl,
           bridge: BRIDGE ? '1' : '0',

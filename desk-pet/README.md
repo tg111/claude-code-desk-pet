@@ -22,7 +22,7 @@
 
 需要 Node.js ≥ 22.12、Claude Code，以及图形桌面（Windows / macOS / Linux）。
 
-**① 安装 `desk-pet` 命令**：
+**① 安装桌宠程序**：不想装 Node 包的话，可以到 [Releases](https://github.com/tg111/claude-code-desk-pet/releases/latest) 下载安装版（Windows `.exe` / macOS `.dmg` / Linux `.AppImage`，自带 Electron），装好后打开一次即可，第一次打开被系统拦截的处理方法见[根 README](https://github.com/tg111/claude-code-desk-pet#readme)。也可以用 npm 安装 `desk-pet` 命令：
 
 ```sh
 npm i -g desk-pet

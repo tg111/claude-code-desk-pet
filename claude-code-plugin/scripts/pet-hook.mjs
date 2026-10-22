@@ -14,6 +14,7 @@
  *   DESK_PET_DISABLE=1     完全停用（不转发、不拉起）
  *   DESK_PET_AUTOSTART=0   只转发，不自动拉起
  *   DESK_PET_CMD           自定义启动命令（整条命令行，经 shell 执行），例如 "node /path/to/lib/standalone.js"
+ *                          （不设时依次找：同仓库构建好的 lib/standalone.js、安装版登记的 launch.json、PATH 上的 desk-pet）
  *   DESK_PET_HOME          数据目录（默认 ~/.desk-pet），与桌宠进程保持一致
  *   DESK_PET_PORT          直接指定端口（不读 server.json）
  */
@@ -97,11 +98,26 @@ function post(port, body) {
   });
 }
 
-/** 启动命令：DESK_PET_CMD > 同仓库里构建好的 lib/standalone.js > PATH 上的 desk-pet */
+/** 安装版（exe / dmg / AppImage）每次启动都会把自己的位置登记在 launch.json；装过又删了就当没有 */
+function installedApp() {
+  try {
+    const { command, args } = JSON.parse(readFileSync(join(home, 'launch.json'), 'utf8'));
+    if (typeof command === 'string' && command && existsSync(command)) {
+      return { command, args: Array.isArray(args) ? args.filter((arg) => typeof arg === 'string') : [] };
+    }
+  } catch {
+    /* 没装过安装版 */
+  }
+  return null;
+}
+
+/** 启动命令：DESK_PET_CMD > 同仓库里构建好的 lib/standalone.js > 安装版 > PATH 上的 desk-pet */
 function launchCommand() {
   if (env.DESK_PET_CMD) return { command: env.DESK_PET_CMD, args: [], shell: true };
   const sibling = resolve(here, '..', '..', 'desk-pet', 'lib', 'standalone.js');
   if (existsSync(sibling)) return { command: process.execPath, args: [sibling], shell: false };
+  const app = installedApp();
+  if (app) return { ...app, shell: false };
   return { command: 'desk-pet', args: [], shell: process.platform === 'win32' };
 }
 
@@ -122,7 +138,8 @@ function launch() {
       stdio: ['ignore', out, out],
       shell,
       windowsHide: true,
-      env,
+      // Claude Code 跑在 VS Code 等 Electron 应用的终端里时会带着它，安装版会因此以纯 Node 模式启动
+      env: { ...env, ELECTRON_RUN_AS_NODE: undefined },
     });
     child.on('error', () => {});
     child.unref();
