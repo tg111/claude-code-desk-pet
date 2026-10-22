@@ -12,7 +12,7 @@
   <img src="assets/preview/gongzuozhuangtai-chuitou-tanqi-maohan.gif" width="160" alt="出错" title="出错">
 </p>
 
-**English:** a desktop pet for [Claude Code](https://claude.com/claude-code). It is a transparent animated pet that follows Claude Code's work status: thinking, working, waiting for approval, done, or error. Install it with `npm i -g desk-pet`, then run `/plugin marketplace add tg111/claude-code-desk-pet` and `/plugin install desk-pet@desk-pet` in Claude Code, and start a new session. See the [project README](https://github.com/tg111/claude-code-desk-pet#readme) for details.
+**English:** a desktop pet for [Claude Code](https://claude.com/claude-code). It is a transparent animated pet that follows Claude Code's work status: thinking, working, waiting for approval, done, or error. Download the installer from [Releases](https://github.com/tg111/claude-code-desk-pet/releases/latest) and open it once (or build from source), then run `/plugin marketplace add tg111/claude-code-desk-pet` and `/plugin install desk-pet@desk-pet` in Claude Code, and start a new session. See the [project README](https://github.com/tg111/claude-code-desk-pet#readme) for details.
 
 > 本目录是桌宠本体（`desk-pet` 程序 + 动画素材）。完整说明（hook 对应关系、配置、pet pack、素材生成链）见[仓库根目录 README](https://github.com/tg111/claude-code-desk-pet#readme)。
 
@@ -22,12 +22,7 @@
 
 需要 Node.js ≥ 22.12、Claude Code，以及图形桌面（Windows / macOS / Linux）。
 
-**① 安装桌宠程序**：不想装 Node 包的话，可以到 [Releases](https://github.com/tg111/claude-code-desk-pet/releases/latest) 下载安装版（Windows `.exe` / macOS `.dmg` / Linux `.AppImage`，自带 Electron），装好后打开一次即可，第一次打开被系统拦截的处理方法见[根 README](https://github.com/tg111/claude-code-desk-pet#readme)。也可以用 npm 安装 `desk-pet` 命令：
-
-```sh
-npm i -g desk-pet
-desk-pet --check     # 体检：配置、Electron、图形环境
-```
+**① 安装桌宠程序**：到 [Releases](https://github.com/tg111/claude-code-desk-pet/releases/latest) 下载安装版（Windows `.exe` / macOS `.dmg` / Linux `.AppImage`，自带 Electron），装好后打开一次即可，第一次打开被系统拦截的处理方法见[根 README](https://github.com/tg111/claude-code-desk-pet#readme)。
 
 或者在本目录下从源码构建（需要 pnpm）：
 
@@ -101,7 +96,7 @@ npm run standalone       # 仓库里直接跑构建产物
 ## 🗑️ 卸载
 
 1. 在 Claude Code 的 `/plugin` 里卸载 desk-pet（或删掉手动写进 `settings.json` 的 hooks）
-2. 托盘「退出桌宠」，然后 `npm rm -g desk-pet` 去掉 `desk-pet` 命令
+2. 托盘「退出桌宠」，然后卸载安装版（Windows 在「设置 → 应用」里卸载，macOS 把 desk-pet 从「应用程序」拖进废纸篓，Linux 删掉 AppImage 文件）；源码方式则执行 `npm rm -g desk-pet` 去掉 `npm link` 装上的 `desk-pet` 命令
 3. 删数据（可选）：`~/.desk-pet/`（配置、记忆、Electron 运行时、日志）；Electron 窗口缓存在 `%APPDATA%\desk-pet-electron-helper\`（macOS `~/Library/Application Support/`，Linux `~/.config/`）
 
 ## 📄 许可
